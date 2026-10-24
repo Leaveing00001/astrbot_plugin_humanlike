@@ -1,0 +1,373 @@
+{
+  "enable": {
+    "type": "bool",
+    "description": "🧬 总开关",
+    "hint": "关着的时候插件完全不介入，回复和现在一模一样。开之前请先把群号填进下面的 groups。",
+    "default": false
+  },
+  "groups": {
+    "type": "string",
+    "description": "🎯 生效的群",
+    "hint": "群号，多个用英文逗号分隔，例如 111111111,222222222。留空 = 所有会话都生效（不建议）。",
+    "default": ""
+  },
+  "private_enable": {
+    "type": "bool",
+    "description": "💬 私聊也生效",
+    "hint": "私聊不走群号白名单，单独一个开关。私聊里对方本来就是冲着你说的，所以不会静默、不会插话，只做节奏和形态那几层。",
+    "default": false
+  },
+  "private_users": {
+    "type": "string",
+    "description": "💬 私聊白名单",
+    "hint": "只对这些 QQ 号的私聊生效，多个用英文逗号分隔。留空 = 所有私聊都生效。",
+    "default": ""
+  },
+  "prompt_extra": {
+    "type": "string",
+    "description": "📝 追加提示词（改语气用这里）",
+    "hint": "原样追加到每次回复的提示词末尾，优先级高于插件自带的所有条款——不用改代码就能压语气。例：「不管什么状态，都不许用反问句怼人」「说话别带刺，最多短一点」。留空 = 不加。改完面板会自动重载插件。",
+    "default": ""
+  },
+  "style": {
+    "type": "object",
+    "description": "✍️ 说话形态",
+    "default": {},
+    "items": {
+      "max_chars": {
+        "type": "int",
+        "description": "单条硬上限（字）",
+        "hint": "超过就截断。真人 QQ 群里一般一条不超过 20 字。",
+        "default": 20
+      },
+      "target_chars": {
+        "type": "int",
+        "description": "理想长度（字）",
+        "hint": "写进提示词的目标值，实际会在 3~target+3 之间浮动。",
+        "default": 10
+      },
+      "split_prob": {
+        "type": "float",
+        "description": "拆成两条的概率",
+        "hint": "0.35 表示约三分之一的时候会像真人一样把一句话拆成两条发（中间有间隔）。",
+        "default": 0.35
+      },
+      "strip_action": {
+        "type": "bool",
+        "description": "删掉括号动作（（耳朵抖）那种）",
+        "hint": "这是二次元 bot 最大的破绽。想保留叶铭的表演感就关掉。",
+        "default": true
+      },
+      "plain": {
+        "type": "bool",
+        "description": "隐形模式：去掉口癖",
+        "hint": "删掉「～」「…」「喵」，第三人称自称改成「我」。叶铭的语气模板本身就是很强的机器人特征，想混进真人堆里建议开。",
+        "default": false
+      },
+      "strip_markdown": {
+        "type": "bool",
+        "description": "删掉 Markdown（加粗/列表/代码块/标题）",
+        "hint": "群里没人用 Markdown，出现就是模型味。",
+        "default": true
+      },
+      "drop_trailing_period": {
+        "type": "bool",
+        "description": "去掉句末句号",
+        "hint": "「我去睡了。」→「我去睡了」。真人打字很少带句号。",
+        "default": true
+      },
+      "keep_ellipsis": {
+        "type": "bool",
+        "description": "保留省略号",
+        "hint": "省略号是「懒得说完」的信号，建议保留。",
+        "default": true
+      }
+    }
+  },
+  "timing": {
+    "type": "object",
+    "description": "⏱️ 节奏",
+    "default": {},
+    "items": {
+      "read_min": {
+        "type": "float",
+        "description": "读消息最短秒数",
+        "hint": "看到消息之前的空窗期，太短会显得是自动回复。",
+        "default": 0.6
+      },
+      "read_max": {
+        "type": "float",
+        "description": "读消息最长秒数",
+        "hint": "",
+        "default": 2.4
+      },
+      "think_min": {
+        "type": "float",
+        "description": "想一下最短秒数",
+        "hint": "",
+        "default": 0.8
+      },
+      "think_max": {
+        "type": "float",
+        "description": "想一下最长秒数",
+        "hint": "",
+        "default": 3.0
+      },
+      "fast_reply_prob": {
+        "type": "float",
+        "description": "秒回的概率",
+        "hint": "正好在看手机时回得飞快（0.4~1.6 秒）。这个「快」比「慢」更像真人，建议保留。",
+        "default": 0.15
+      },
+      "long_pause_prob": {
+        "type": "float",
+        "description": "长时间不回头的概率",
+        "hint": "命中后追加一段指数分布的长停顿（均值 8 秒，上限见下方）。这是让回复间隔不规整的关键。",
+        "default": 0.18
+      },
+      "long_pause_min": {
+        "type": "float",
+        "description": "长停顿最短秒数",
+        "hint": "",
+        "default": 5.0
+      },
+      "long_pause_max": {
+        "type": "float",
+        "description": "长停顿最长秒数",
+        "hint": "",
+        "default": 22.0
+      },
+      "max_delay": {
+        "type": "float",
+        "description": "总延迟上限（秒）",
+        "hint": "防止一次等太久把会话卡住。",
+        "default": 40.0
+      },
+      "night_slowdown": {
+        "type": "bool",
+        "description": "深夜变慢",
+        "hint": "23:30~06:00 延迟乘 1.7，并且不回的概率翻倍。",
+        "default": true
+      },
+      "typing_indicator": {
+        "type": "bool",
+        "description": "显示「正在输入」",
+        "hint": "取决于协议端是否支持（NapCat 支持 set_group_typing 时有效）。",
+        "default": true
+      }
+    }
+  },
+  "silence": {
+    "type": "object",
+    "description": "🤐 不回消息",
+    "default": {},
+    "items": {
+      "prob": {
+        "type": "float",
+        "description": "被叫到也不回的基础概率",
+        "hint": "0.12 表示 12%。真人不是每次被叫到都会回，偶尔漏看一条是最强的'像人'信号。",
+        "default": 0.12
+      },
+      "never_silent_on_question": {
+        "type": "bool",
+        "description": "直接提问时必回",
+        "hint": "带上「在吗/？」这种就一定会回，避免看起来像掉线。",
+        "default": true
+      },
+      "spam_window": {
+        "type": "int",
+        "description": "连续 @ 的判定窗口（秒）",
+        "hint": "窗口内被 @ 达到 3 次会掉脾气。",
+        "default": 120
+      },
+      "cooldown": {
+        "type": "int",
+        "description": "两次「不回」之间的最短间隔（秒）",
+        "hint": "刚无视过一次，这段时间内必须接话——连着两次不理人比说话难听还伤人。0 = 关掉这条保护。",
+        "default": 900
+      }
+    }
+  },
+  "mood": {
+    "type": "object",
+    "description": "🌡️ 情绪（三条轴：活力 / 情绪 / 脾气）",
+    "hint": "以前只有一个「心情」标量，提示词全落在「句子短一点」上，所以读起来永远是同一个懒散。现在拆成三条独立的轴：懒散↔活力、伤心↔开心、生气↔温柔。被夸、被骂、被催、被拉去玩、有人关心你，都会推对应的那条；推完「按住」几分钟不回弹，之后慢慢淡回基线。没发生什么的时候不写状态词——默认是「平常」，不是「懒散」。",
+    "default": {},
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用情绪变化",
+        "hint": "关掉后语气恒定，三条轴都停在基线，不再被群里的话推动。",
+        "default": true
+      },
+      "energy_baseline": {
+        "type": "float",
+        "description": "「活力」轴基线",
+        "hint": "0~1，0 是懒散、1 是活力。0.42 是「没什么特别想动的劲」。开黑邀请、有好事会推高，被催、被冷落会压低。",
+        "default": 0.42
+      },
+      "spirits_baseline": {
+        "type": "float",
+        "description": "「情绪」轴基线",
+        "hint": "0~1，0 是伤心、1 是开心。被夸、有人关心会推高，坏消息、被无视会压低。",
+        "default": 0.56
+      },
+      "temper_baseline": {
+        "type": "float",
+        "description": "「脾气」轴基线",
+        "hint": "0~1，0 是生气、1 是温柔。被骂、被连续 @ 会压低，被哄、被关心会推高。低于 0.28 会进入「在生气」段。",
+        "default": 0.68
+      },
+      "edge": {
+        "type": "float",
+        "description": "语气锋利度（0~1）",
+        "hint": "默认 0.3：情绪低只让话变少，不让话变刻薄。调到 0.6 以上才会启用「可以顶一句 / 可以不好好答」那套锋利文案（不建议——真实群友会被整破防）。0 等于彻底去掉锋利文案。",
+        "default": 0.3
+      },
+      "temper_floor": {
+        "type": "float",
+        "description": "脾气下限（安全阀）",
+        "hint": "脾气再低也不落到这个值以下。默认 0.15 留一点生气；填 0.45 以上就彻底不会进入「在生气」段，只剩「不太耐烦」。",
+        "default": 0.15
+      },
+      "decay_per_hour": {
+        "type": "float",
+        "description": "每小时回归基线的速度",
+        "hint": "1.0 表示一小时拉回约 63% 的差距。被推完的那几分钟几乎不动（见各触发条件的「按住」时间）。",
+        "default": 1.0
+      },
+      "annoy_step": {
+        "type": "float",
+        "description": "被连续 @ 掉多少脾气",
+        "hint": "120 秒内被 @ 三次，脾气就掉这么多，同时掉四成的活力。",
+        "default": 0.15
+      },
+      "react_scale": {
+        "type": "float",
+        "description": "情绪变化的整体倍率",
+        "hint": "1.0 是原样。嫌反应太淡调到 1.4，嫌太跳调到 0.6；0 等于关掉「被话推着走」，只剩基线和衰减。",
+        "default": 1.0
+      },
+      "ignored_cooldown": {
+        "type": "int",
+        "description": "「被无视」的最短间隔（秒）",
+        "hint": "刚说完话、群里却接着聊别的，会掉一点情绪和活力。热群里这个判定很频繁，所以十分钟最多算一次。",
+        "default": 600
+      },
+      "baseline": {
+        "type": "float",
+        "description": "（旧字段）情绪轴基线的别名",
+        "hint": "老配置里只有这一个数。现在它只当「情绪」轴的基线用；想让三条轴各自调，用上面的三个 baseline。",
+        "default": 0.56
+      }
+    }
+  },
+  "guards": {
+    "type": "object",
+    "description": "🛡️ 反露馅硬保险",
+    "hint": "提示词只能「劝」，这几道是「拦」：模型真的写出会露馅的句子时，按结构把它切掉或干脆不发。都是后处理，不影响生成质量。",
+    "default": {},
+    "items": {
+      "dedupe_stance": {
+        "type": "bool",
+        "description": "拦住同一句约束说两遍",
+        "hint": "比如先说「别太辣」，两句后又来「别放太多辣」。命中就把这句约束切掉；整句都在复读时，被起哄的场合改成给一句反应，否则不发。",
+        "default": true
+      },
+      "attribute_transfer": {
+        "type": "bool",
+        "description": "拦住把别人的属性安到自己身上",
+        "hint": "别人说「反正我开车」，它接一句「我开车就不喝了」。命中就把这一小句切掉。",
+        "default": true
+      },
+      "fact_conflict": {
+        "type": "bool",
+        "description": "拦住和群里已说定的事冲突的说法",
+        "hint": "群里有人说「我都订好位了」，它还提「先占个位」。命中就把这一小句切掉。",
+        "default": true
+      },
+      "drop_stale": {
+        "type": "bool",
+        "description": "拦住话题翻篇后的补答（默认关）",
+        "hint": "靠「话题字重合」判断，但正常回答也常常要引用上文（「反正有开车的，我拎两瓶吧」），实测会误杀好句子。真正那批「回头补答」都是同一句约束复述，已经由上面的 dedupe_stance 拦掉了。除非你确定要更安静，否则别开。",
+        "default": false
+      },
+      "tease_reaction": {
+        "type": "bool",
+        "description": "被起哄时必须给反应",
+        "hint": "有人笑它、指出它说话不算数时，不许平静复述偏好。提示词会点名，后处理再兜一层：复读被切光就换一句反应，切掉一半就补一句。",
+        "default": true
+      },
+      "recent_human": {
+        "type": "int",
+        "description": "记住群里最近几句人话",
+        "hint": "上面几道保险全靠这个判断「谁已经说定什么」「谁在起哄」「话题翻到哪了」。0 = 全部关闭。",
+        "default": 12
+      }
+    }
+  },
+  "consistency": {
+    "type": "object",
+    "description": "🧠 一致性",
+    "default": {},
+    "items": {
+      "self_lines": {
+        "type": "int",
+        "description": "记住自己说过的几句",
+        "hint": "会作为「你最近说过」塞进提示词，防止前后矛盾或复读。0 = 关闭。",
+        "default": 6
+      }
+    }
+  },
+  "initiative": {
+    "type": "object",
+    "description": "🗣️ 主动插话",
+    "default": {},
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "允许偶尔插一句",
+        "hint": "没被 @ 时也有小概率自己开口。真人会接话，只会应答的反而像客服。",
+        "default": true
+      },
+      "prob": {
+        "type": "float",
+        "description": "每条消息插话的概率",
+        "hint": "0.06 表示 6%。太高会变回 angel_heart 那种抢话型 bot，建议 0.03~0.08。",
+        "default": 0.06
+      }
+    }
+  },
+  "followup": {
+    "type": "object",
+    "description": "💬 接话头（不 @ 也接）",
+    "hint": "真人回你的时候经常既不 @ 也不引用，就挨着你上一条往下说（像在动态底下直接回一句）。开着它，这种话才会被当成是在跟你说。",
+    "default": {},
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "允许接没 @ 我的话",
+        "hint": "只在你刚说过话之后的一小段时间内生效，且连续接话有上限，不会变成「谁说一句都答」。",
+        "default": true
+      },
+      "prob": {
+        "type": "float",
+        "description": "接住的概率",
+        "hint": "0.65 表示这类话有 65% 会被你接住，剩下的当作没看见——真人也有漏看的。",
+        "default": 0.65
+      },
+      "window": {
+        "type": "int",
+        "description": "只在这个窗口内算「接着我说」（秒）",
+        "hint": "你上一条发出后的多少秒内，别人紧接着说的话算在接你。240 = 4 分钟。",
+        "default": 240
+      },
+      "max_chain": {
+        "type": "int",
+        "description": "连续接话上限（轮）",
+        "hint": "一次对话最多让你连回几轮，超过就停，等下次被 @ 重新开始。防止两个人无限来回。",
+        "default": 3
+      }
+    }
+  }
+}
