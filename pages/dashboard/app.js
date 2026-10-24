@@ -17,6 +17,7 @@
       private_enable: true,
       private_users: "",
       prompt_extra: "",
+      persona_name: "",
       style: { max_chars: 20, target_chars: 10, split_prob: 0.4 },
       timing: {
         enable: true, fast_reply_prob: 0.2, settle_min: 0.3, settle_max: 1.8,
@@ -149,7 +150,7 @@
   }
 
   const TAB_META = {
-    scope: ["生效范围", "决定叶铭在哪些群、哪些私聊里“有人的样子”。"],
+    scope: ["生效范围", "决定 bot 在哪些群、哪些私聊里“有人的样子”。"],
     prompt: ["提示词", "不改代码就能调语气——这里的话优先级最高。"],
     mood: ["情绪", "活力、情绪、脾气三条轴；基线决定“平时是什么样”。"],
     rhythm: ["节奏", "完整回复到手之后，决定这条是秒回还是停一下。"],

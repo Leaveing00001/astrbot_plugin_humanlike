@@ -225,6 +225,16 @@ textarea {
 textarea:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--panel); }
 textarea::placeholder { color: var(--muted); }
 
+/* ── 单行文本输入 ───────────────────────────────── */
+.text-input {
+  width: 100%; margin-top: 12px; padding: 10px 14px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text);
+  font: inherit; font-size: 13.5px;
+}
+.text-input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--panel); }
+.text-input::placeholder { color: var(--muted); }
+
 .examples { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .ex-label { font-size: 11.5px; color: var(--muted); margin-right: 2px; }
 .chip-btn {

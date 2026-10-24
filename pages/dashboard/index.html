@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>人味层 · 让叶铭像个人</title>
+<title>人味层 · 让 bot 像个人</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -56,7 +56,7 @@
     <header class="topbar">
       <div class="titles">
         <h1 id="pageTitle">生效范围</h1>
-        <p id="pageSub">决定叶铭在哪些群、哪些私聊里“有人的样子”。</p>
+        <p id="pageSub">决定 bot 在哪些群、哪些私聊里“有人的样子”。</p>
       </div>
       <div class="pills" id="statusPills"></div>
     </header>
@@ -67,7 +67,7 @@
       <section class="tab is-active" data-panel="scope">
         <div class="card">
           <div class="card-head">
-            <div><h2>总开关</h2><p>关掉后所有改动都不生效，叶铭回到“有问必答”的样子。</p></div>
+            <div><h2>总开关</h2><p>关掉后所有改动都不生效，bot 回到“有问必答”的样子。</p></div>
             <label class="switch"><input type="checkbox" data-path="enable"><span class="track"></span></label>
           </div>
         </div>
@@ -100,13 +100,25 @@
             <li><b>回不回</b>：不归这个插件管。要不要开口由上游（AstrBot 本身、Proactive Chat、angel_heart）决定，人味层只接管已经生成好的那条回复。</li>
             <li><b>群里</b>：把话压短，需要时用引用 / 艾特指向具体的人，被夸被骂会换语气。</li>
             <li><b>私聊</b>：只做提示词、形态和节奏，不 @ 也不引用。</li>
-            <li><b>移出白名单</b>：立刻退回普通模式——还是叶铭的人格，只是不再有人的节奏和情绪。</li>
+            <li><b>移出白名单</b>：立刻退回普通模式——还是原来的人格，只是不再有人的节奏和情绪。</li>
           </ul>
         </div>
       </section>
 
       <!-- ───────── 提示词 ───────── -->
       <section class="tab" data-panel="prompt">
+        <div class="card">
+          <div class="card-head">
+            <div><h2>人格自称</h2><p>换人格不用改代码：人设（系统提示词）由 AstrBot 提供，这里只告诉插件“它怎么称呼自己”。</p></div>
+          </div>
+          <input class="text-input" type="text" data-path="persona_name"
+            placeholder="留空 = 自动（读当前会话的人设名）；多个用逗号分隔">
+          <div class="note">
+            只有「隐形模式」（<code>style.plain</code>，在 <a href="#" data-goto="rhythm">节奏</a> 页）会用到它：
+            把回复里的自称换成「我」。留空时自动读当前会话的人设名；读不到就只删口癖、不改自称。
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-head">
             <div><h2>追加提示词</h2><p>原样拼在每次回复的提示词最后，<b>优先级高于插件自带的所有条款</b>。改语气、加禁忌都写这里。</p></div>
@@ -132,7 +144,7 @@
           </div>
 
           <div class="row">
-            <div class="row-txt"><b>允许引用</b><p>要接的不是最新那条、或者好几个人同时在说话时，引用那一条，让人一眼看出在回谁。</p></div>
+            <div class="row-txt"><b>允许引用</b><p>要回的不是最新那条、或者群里同时有两三个话题在跑时，默认引用那一条，让人一眼看出在回谁。</p></div>
             <label class="switch"><input type="checkbox" data-path="tools.reply_quote"><span class="track"></span></label>
           </div>
 
@@ -405,7 +417,7 @@
       <section class="tab" data-panel="about">
         <div class="card">
           <div class="card-head"><div><h2>人味层 · astrbot_plugin_humanlike</h2>
-            <p>不改“回不回”，只改“怎么说、说多快、什么语气”。要不要开口交给上游，插件接的是已经生成好的那条回复。人格仍然由 AstrBot 的叶铭提供。</p></div></div>
+            <p>不改“回不回”，只改“怎么说、说多快、什么语气”。要不要开口交给上游，插件接的是已经生成好的那条回复。人格仍然由 AstrBot 的人设（或系统提示词）提供。</p></div></div>
           <dl class="kv">
             <div><dt>版本</dt><dd data-bind="version">–</dd></div>
             <div><dt>仓库</dt><dd><a href="https://github.com/Leaveing00001/astrbot_plugin_humanlike" target="_blank" rel="noreferrer">Leaveing00001/astrbot_plugin_humanlike</a></dd></div>

@@ -279,6 +279,33 @@ check("不再有 _is_follow_up", not hasattr(plugin, "_is_follow_up"))
 check("不再有 human_gate 钩子", not hasattr(plugin, "human_gate"))
 check("不再有 _silence", not hasattr(plugin, "_silence"))
 
+# 3.15 换人格：插件不写死名字，隐形模式按配置 / 人设名替换自称
+plugin.config["style"]["plain"] = True
+plugin.config["persona_name"] = "阿岚"
+s_name = plugin._sanitize("阿岚觉得可以", ("阿岚",))
+check("隐形模式把自称换成「我」", s_name == "我觉得可以", repr(s_name))
+
+s_noname = plugin._sanitize("阿岚觉得可以", ())
+check("没给名字时不乱替换", s_noname.startswith("阿岚"), repr(s_noname))
+
+plugin.config["style"]["plain"] = False
+plugin.config["persona_name"] = ""
+s_plain_off = plugin._sanitize("阿岚觉得可以", ("阿岚",))
+check("关掉隐形模式后连名字都不动", s_plain_off.startswith("阿岚"), repr(s_plain_off))
+
+plugin.config["persona_name"] = "阿岚, 小岚"
+names_cfg = asyncio.run(plugin._self_names(FakeEvent("在吗")))
+check("配置里的多个名字都解析出来",
+      set(names_cfg) == {"阿岚", "小岚"}, str(names_cfg))
+
+plugin.config["persona_name"] = ""
+check("没有配置、也读不到 context 时安全返回空",
+      asyncio.run(plugin._self_names(FakeEvent("在吗"))) == ())
+
+# 代码里不该再出现具体人格名
+_main_src = PLUGIN_MAIN.read_text(encoding="utf-8")
+check("main.py 里没有写死人格名", "叶铭" not in _main_src)
+
 # ── 5. 提示词契约 ────────────────────────────────────────
 plugin.config["style"]["split_prob"] = 0.35
 ev = FakeEvent("来不来，周末开黑")

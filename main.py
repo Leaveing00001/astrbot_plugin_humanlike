@@ -1,4 +1,4 @@
-"""astrbot_plugin_humanlike —— 给叶铭加一层"人味"。
+"""astrbot_plugin_humanlike —— 给任意人格加一层"人味"。
 
 目标不是让机器人更聪明，而是让它更像群里的一个真人：
 它会有反应时间、会有心情、会把话说短、会在生气时话少。
@@ -15,8 +15,9 @@
 angel_heart 等）决定——本插件不再看门、不再插话、也不再抢话，只在上游已经
 生成出完整回复之后动手，管它「发多久、说多短、什么语气」。
 
-人格本身仍由 AstrBot 的「叶铭（认主）」提供，本插件只改「怎么说」，
-不改「是谁」。
+人格由 AstrBot 的人设（或系统提示词）提供，本插件只改「怎么说」，不改「是谁」。
+**插件不假设人格叫什么**：唯一用到名字的地方是「隐形模式」把自称换成「我」，
+名字取自 `persona_name`，留空就自动读当前会话的人设名。
 """
 
 from __future__ import annotations
@@ -77,7 +78,7 @@ _RE_AT_LEAD = re.compile(r"^(\[At:\d{4,12}\][\s\u200b]*)")
 _RE_AT_TRUNC = re.compile(r"\[At:?[^\]]*$")
 
 # 上游出错时 AstrBot 会把错误文本当回复发出来。下面这些开头一出现，
-# 就说明这条不是叶铭说的话，而是给运维看的——拦下来写日志，别让群友看见。
+# 就说明这条不是这个角色说的话，而是给运维看的——拦下来写日志，别让群友看见。
 _ERROR_HEADS = (
     "LLM 响应错误",
     "LLM 请求失败",
@@ -1309,7 +1310,10 @@ class HumanLikePlugin(Star):
             umo = str(event.unified_msg_origin or "")
             sess = self._session(umo)
 
-            cleaned = self._sanitize(original)
+            cleaned = self._sanitize(
+                original,
+                await self._self_names(event) if self._cb("style.plain", False) else (),
+            )
             tease = self._tease_kind(sess)
 
             # 四道硬保险：改不了"生成"，但可以拦下"不该发出去的那句"
@@ -1415,7 +1419,36 @@ class HumanLikePlugin(Star):
         out = "".join(kept) if kept else sentences[0]
         return _RE_AI_LEAD.sub("", out.strip())
 
-    def _sanitize(self, text: str) -> str:
+    async def _self_names(self, event: AstrMessageEvent) -> tuple[str, ...]:
+        """这个会话里它该被怎么称呼：配置优先，否则读当前会话的人设名。
+
+        只在「隐形模式」把自称换成「我」时用得到，所以取不到也不算错——
+        插件其余部分完全不依赖人格叫什么。
+        """
+        raw = str(self._c("persona_name", "") or "")
+        names = [n.strip() for n in re.split(r"[,，、\s]+", raw) if n.strip()]
+
+        if not names:
+            try:
+                pm = getattr(self.context, "persona_manager", None)
+                if pm is not None:
+                    persona = await pm.get_default_persona_v3(
+                        getattr(event, "unified_msg_origin", None)
+                    )
+                    name = str((persona or {}).get("name") or "").strip()
+                    if name:
+                        names.append(name)
+                        # 「阿岚（认主）」这种带后缀的，本体也一起换
+                        head = re.split(r"[（(]", name)[0].strip()
+                        if head and head != name:
+                            names.append(head)
+            except Exception as e:
+                logger.debug(f"[humanlike] 读人设名失败（不影响其他层）: {e}")
+
+        # 长的先换，免得短名先吃掉长名的一部分
+        return tuple(sorted(set(names), key=len, reverse=True))
+
+    def _sanitize(self, text: str, self_names: tuple[str, ...] = ()) -> str:
         t = (text or "").strip()
         if not t:
             return ""
@@ -1445,7 +1478,8 @@ class HumanLikePlugin(Star):
 
         if self._cb("style.plain", False):
             # 「隐形模式」：去掉口癖，改成普通人类打字
-            t = t.replace("叶铭", "我")
+            for name in self_names:
+                t = t.replace(name, "我")
             t = re.sub(r"[～~]+", "", t)
             t = re.sub(r"…+", "", t)
             t = re.sub(r"\.{3,}", "", t)
