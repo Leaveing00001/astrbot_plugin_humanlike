@@ -302,6 +302,21 @@ plugin.config["persona_name"] = ""
 check("没有配置、也读不到 context 时安全返回空",
       asyncio.run(plugin._self_names(FakeEvent("在吗"))) == ())
 
+
+class _FakePersonaMgr:
+    async def get_default_persona_v3(self, umo=None):
+        return {"name": "阿岚（认主）"}
+
+
+class _FakeCtx:
+    persona_manager = _FakePersonaMgr()
+
+
+plugin_ctx = mod.HumanLikePlugin(_FakeCtx(), dict(CONFIG))
+names_persona = asyncio.run(plugin_ctx._self_names(FakeEvent("在吗")))
+check("留空时自动读人设名（拆掉括号后缀）",
+      set(names_persona) == {"阿岚（认主）", "阿岚"}, str(names_persona))
+
 # 代码里不该再出现具体人格名
 _main_src = PLUGIN_MAIN.read_text(encoding="utf-8")
 check("main.py 里没有写死人格名", "叶铭" not in _main_src)

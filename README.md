@@ -530,7 +530,7 @@ astrbot_plugin_humanlike/
 ├── pages/dashboard/         # 面板页面：index.html / style.css / app.js
 ├── .astrbot-plugin/i18n/    # 面板里的显示名
 ├── docs/                    # README 里的截图
-├── tests/test_offline.py    # 离线自测（122 项，不需要连 QQ）
+├── tests/test_offline.py    # 离线自测（129 项，不需要连 QQ）
 └── README.md
 ```
 
