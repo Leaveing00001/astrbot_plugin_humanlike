@@ -37,7 +37,7 @@
         <i class="ico" data-ico="mood"></i><span>情绪</span>
       </button>
       <button class="nav-item" data-tab="rhythm">
-        <i class="ico" data-ico="rhythm"></i><span>节奏与沉默</span>
+        <i class="ico" data-ico="rhythm"></i><span>节奏</span>
       </button>
       <button class="nav-item" data-tab="state">
         <i class="ico" data-ico="state"></i><span>实时状态</span>
@@ -82,7 +82,7 @@
 
         <div class="card">
           <div class="card-head">
-            <div><h2>私聊</h2><p>私聊里对方本来就是冲着你说的，所以不静默、不插话，只做节奏和形态。</p></div>
+            <div><h2>私聊</h2><p>私聊不走群号白名单，单独一个开关。私聊里照样只做提示词、形态和节奏。</p></div>
             <label class="switch"><input type="checkbox" data-path="private_enable"><span class="track"></span></label>
           </div>
           <div class="sub-block">
@@ -97,8 +97,9 @@
               <p>白名单决定“在哪”，剩下几页决定“怎么说话”。</p></div>
           </div>
           <ul class="bullets">
-            <li><b>群里</b>：只回叫到你（@、唤醒词、或者接着你上一条说）的那一句，别人的对话不插嘴。</li>
-            <li><b>私聊</b>：对方就是在跟你说，所以不静默、不判插话，只做节奏和形态。</li>
+            <li><b>回不回</b>：不归这个插件管。要不要开口由上游（AstrBot 本身、Proactive Chat、angel_heart）决定，人味层只接管已经生成好的那条回复。</li>
+            <li><b>群里</b>：把话压短，需要时用引用 / 艾特指向具体的人，被夸被骂会换语气。</li>
+            <li><b>私聊</b>：只做提示词、形态和节奏，不 @ 也不引用。</li>
             <li><b>移出白名单</b>：立刻退回普通模式——还是叶铭的人格，只是不再有人的节奏和情绪。</li>
           </ul>
         </div>
@@ -119,6 +120,30 @@
             <button class="chip-btn" data-example="看对方真的难受了，就把话放软一点，别继续端着。">对方难受就软下来</button>
             <button class="chip-btn" data-example="说话别带刺，最多短一点。">别带刺</button>
             <button class="chip-btn" data-example="刚才好像把话说急了。接下来几句软一点，别怼人。">临时哄一哄</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div><h2>把话对准人（引用 / 艾特）</h2>
+              <p>QQ 工具箱提供两样能力：<code>reply_to</code> 引用回复、正文里写 <code>[At:QQ号]</code> 转成真实艾特。
+              模型几乎不会主动用，这里补一句“什么时候该用”。</p></div>
+            <label class="switch"><input type="checkbox" data-path="tools.guide"><span class="track"></span></label>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>允许引用</b><p>要接的不是最新那条、或者好几个人同时在说话时，引用那一条，让人一眼看出在回谁。</p></div>
+            <label class="switch"><input type="checkbox" data-path="tools.reply_quote"><span class="track"></span></label>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>允许艾特</b><p>想点名让某个人接话、或者把话丢回给他时，在正文里写 <code>[At:QQ号]</code>。依赖 QQ 工具箱的「自动艾特转换」。</p></div>
+            <label class="switch"><input type="checkbox" data-path="tools.at_user"><span class="track"></span></label>
+          </div>
+
+          <div class="note">
+            只在群里加，私聊不加。提示词里写死了「一条回复最多一个，别每条都加」——
+            否则会变成每句话都挂一个 @，比不 @ 还假。
           </div>
         </div>
 
@@ -248,8 +273,73 @@
         </div>
       </section>
 
-      <!-- ───────── 节奏与沉默 ───────── -->
+      <!-- ───────── 节奏 ───────── -->
       <section class="tab" data-panel="rhythm">
+        <div class="card">
+          <div class="card-head">
+            <div><h2>发出去的节奏</h2><p>完整回复已经生成好之后，才决定这条是秒回还是停一下。停顿加在输出之后，不占模型的生成时间。</p></div>
+            <label class="switch"><input type="checkbox" data-path="timing.enable"><span class="track"></span></label>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>秒回的概率</b><p>正好在看手机，一个字都不等直接发。这个“快”比“慢”更像真人。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="1" step="0.05" data-path="timing.fast_reply_prob">
+              <output data-out="timing.fast_reply_prob">0.20</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>最短停顿</b><p>不秒回的时候，至少停这么久。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="6" step="0.1" data-path="timing.settle_min">
+              <output data-out="timing.settle_min">0.3</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>最长停顿</b><p>和上一项之间随机取，间隔不整齐才像人。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="10" step="0.1" data-path="timing.settle_max">
+              <output data-out="timing.settle_max">1.8</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>手慢的概率</b><p>正好没看手机，在这之上再多停一会儿。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="0.5" step="0.01" data-path="timing.long_pause_prob">
+              <output data-out="timing.long_pause_prob">0.12</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>手慢最多加几秒</b><p>长停顿的封顶值，别让一条消息等太久。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="30" step="0.5" data-path="timing.long_pause_max">
+              <output data-out="timing.long_pause_max">5.0</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>停顿总上限</b><p>所有加成叠起来也不会超过它。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="60" step="1" data-path="timing.max_delay">
+              <output data-out="timing.max_delay">12</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>深夜变慢</b><p>23:30–6:00 停顿乘 1.8。</p></div>
+            <label class="switch"><input type="checkbox" data-path="timing.night_slowdown"><span class="track"></span></label>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>显示“正在输入”</b><p>请求模型前先发一个 typing 状态，取决于协议端支不支持。</p></div>
+            <label class="switch"><input type="checkbox" data-path="timing.typing_indicator"><span class="track"></span></label>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-head"><div><h2>说话形态</h2><p>管长度和“偶尔拆成两条发”。</p></div></div>
 
@@ -279,75 +369,18 @@
         </div>
 
         <div class="card">
-          <div class="card-head"><div><h2>提速与停顿</h2><p>真人不是匀速打字机。</p></div></div>
-
-          <div class="row">
-            <div class="row-txt"><b>秒回的概率</b><p>正好在看手机，回得飞快。</p></div>
-            <div class="row-ctl">
-              <input type="range" min="0" max="1" step="0.05" data-path="timing.fast_reply_prob">
-              <output data-out="timing.fast_reply_prob">0.15</output>
-            </div>
+          <div class="card-head">
+            <div><h2>输出保护</h2><p>管“不该发出去的东西”——上游报错、以及模型不认的历史图片块。</p></div>
           </div>
 
           <div class="row">
-            <div class="row-txt"><b>长停顿的概率</b><p>人不在手机旁，隔很久才回。</p></div>
-            <div class="row-ctl">
-              <input type="range" min="0" max="1" step="0.05" data-path="timing.long_pause_prob">
-              <output data-out="timing.long_pause_prob">0.18</output>
-            </div>
+            <div class="row-txt"><b>报错只写日志</b><p>模型接口 400/500 时，AstrBot 会把错误正文当成回复发到群里（里面带着 provider 返回的 JSON）。开着就只进日志。</p></div>
+            <label class="switch"><input type="checkbox" data-path="guards.hide_errors"><span class="track"></span></label>
           </div>
 
           <div class="row">
-            <div class="row-txt"><b>深夜变慢</b><p>23:30–6:00 整体拖慢，也更不想说话。</p></div>
-            <label class="switch"><input type="checkbox" data-path="timing.night_slowdown"><span class="track"></span></label>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head"><div><h2>不回消息</h2><p>最像人的一层，也是最容易让人觉得被冷落的一层。</p></div></div>
-
-          <div class="row">
-            <div class="row-txt"><b>被叫到也不回的概率</b><p>直接提问时强制必回，不受这个影响。</p></div>
-            <div class="row-ctl">
-              <input type="range" min="0" max="0.5" step="0.01" data-path="silence.prob">
-              <output data-out="silence.prob">0.12</output>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="row-txt"><b>两次之间的冷却</b><p>刚无视过一次，这段时间内必须接话。</p></div>
-            <div class="row-ctl">
-              <input type="range" min="0" max="3600" step="60" data-path="silence.cooldown">
-              <output data-out="silence.cooldown">900</output>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head"><div><h2>主动与接话</h2><p>没被叫到也接一句。</p></div></div>
-
-          <div class="row">
-            <div class="row-txt"><b>主动插话的概率</b><p>心情有劲的时候才会真的插。</p></div>
-            <div class="row-ctl">
-              <input type="range" min="0" max="0.5" step="0.01" data-path="initiative.prob">
-              <output data-out="initiative.prob">0.06</output>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="row-txt"><b>接话头的概率</b><p>别人没 @ 也没引用、直接挨着你上一条说。</p></div>
-            <div class="row-ctl">
-              <input type="range" min="0" max="1" step="0.05" data-path="followup.prob">
-              <output data-out="followup.prob">0.50</output>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="row-txt"><b>连击上限</b><p>连续接几轮就停，避免变成“谁说话都答”。</p></div>
-            <div class="row-ctl">
-              <input type="range" min="1" max="6" step="1" data-path="followup.max_chain">
-              <output data-out="followup.max_chain">2</output>
-            </div>
+            <div class="row-txt"><b>修掉历史里的坏图片块</b><p>url 缺失或格式不对的图片块会让 text-only 的模型整轮 400，换成 <code>[图片]</code> 就能接着说话。</p></div>
+            <label class="switch"><input type="checkbox" data-path="guards.scrub_images"><span class="track"></span></label>
           </div>
         </div>
       </section>
@@ -372,11 +405,11 @@
       <section class="tab" data-panel="about">
         <div class="card">
           <div class="card-head"><div><h2>人味层 · astrbot_plugin_humanlike</h2>
-            <p>把“有问必答的客服”改造成群里那个会慢半拍、会被问烦、偶尔不回的人。人格仍然由 AstrBot 的叶铭提供。</p></div></div>
+            <p>不改“回不回”，只改“怎么说、说多快、什么语气”。要不要开口交给上游，插件接的是已经生成好的那条回复。人格仍然由 AstrBot 的叶铭提供。</p></div></div>
           <dl class="kv">
             <div><dt>版本</dt><dd data-bind="version">–</dd></div>
             <div><dt>仓库</dt><dd><a href="https://github.com/Leaveing00001/astrbot_plugin_humanlike" target="_blank" rel="noreferrer">Leaveing00001/astrbot_plugin_humanlike</a></dd></div>
-            <div><dt>离线自测</dt><dd>103 项（不需要连 QQ）</dd></div>
+            <div><dt>离线自测</dt><dd>120 项（不需要连 QQ）</dd></div>
             <div><dt>许可</dt><dd>MIT</dd></div>
           </dl>
           <div class="note">

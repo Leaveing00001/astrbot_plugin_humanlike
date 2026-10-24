@@ -2,19 +2,19 @@
   "enable": {
     "type": "bool",
     "description": "🧬 总开关",
-    "hint": "关着的时候插件完全不介入，回复和现在一模一样。开之前请先把群号填进下面的 groups。",
+    "hint": "关着的时候插件完全不介入，回复和现在一模一样。",
     "default": false
   },
   "groups": {
     "type": "string",
     "description": "🎯 生效的群",
-    "hint": "群号，多个用英文逗号分隔，例如 111111111,222222222。留空 = 所有会话都生效（不建议）。",
+    "hint": "群号，多个用英文逗号分隔，例如 111111111,222222222。留空 = 所有会话都生效。",
     "default": ""
   },
   "private_enable": {
     "type": "bool",
     "description": "💬 私聊也生效",
-    "hint": "私聊不走群号白名单，单独一个开关。私聊里对方本来就是冲着你说的，所以不会静默、不会插话，只做节奏和形态那几层。",
+    "hint": "私聊不走群号白名单，单独一个开关。私聊里照样只做提示词、形态和节奏。",
     "default": false
   },
   "private_users": {
@@ -26,7 +26,7 @@
   "prompt_extra": {
     "type": "string",
     "description": "📝 追加提示词（改语气用这里）",
-    "hint": "原样追加到每次回复的提示词末尾，优先级高于插件自带的所有条款——不用改代码就能压语气。例：「不管什么状态，都不许用反问句怼人」「说话别带刺，最多短一点」。留空 = 不加。改完面板会自动重载插件。",
+    "hint": "原样追加到每次回复的提示词末尾，优先级高于插件自带的所有条款——不用改代码就能压语气。例：「不管什么状态，都不许用反问句怼人」「说话别带刺，最多短一点」。留空 = 不加。",
     "default": ""
   },
   "style": {
@@ -49,7 +49,7 @@
       "split_prob": {
         "type": "float",
         "description": "拆成两条的概率",
-        "hint": "0.35 表示约三分之一的时候会像真人一样把一句话拆成两条发（中间有间隔）。",
+        "hint": "0.35 表示约三分之一的时候会像真人一样把一句话拆成两条发。",
         "default": 0.35
       },
       "strip_action": {
@@ -86,112 +86,96 @@
   },
   "timing": {
     "type": "object",
-    "description": "⏱️ 节奏",
+    "description": "⏱️ 发出去的节奏（完整回复到手之后才算）",
+    "hint": "「这条要不要回」由上游（AstrBot 自己、Proactive Chat、angel_heart）决定，本插件接的是它已经生成好的完整回复。这一页只管一件事：已经决定要发之后，是立刻发，还是停一下再发。停顿加在输出完成之后，不会拖慢模型。",
     "default": {},
     "items": {
-      "read_min": {
-        "type": "float",
-        "description": "读消息最短秒数",
-        "hint": "看到消息之前的空窗期，太短会显得是自动回复。",
-        "default": 0.6
-      },
-      "read_max": {
-        "type": "float",
-        "description": "读消息最长秒数",
-        "hint": "",
-        "default": 2.4
-      },
-      "think_min": {
-        "type": "float",
-        "description": "想一下最短秒数",
-        "hint": "",
-        "default": 0.8
-      },
-      "think_max": {
-        "type": "float",
-        "description": "想一下最长秒数",
-        "hint": "",
-        "default": 3.0
+      "enable": {
+        "type": "bool",
+        "description": "启用节奏",
+        "hint": "关掉 = 每条都立刻发，下面几项全部失效。",
+        "default": true
       },
       "fast_reply_prob": {
         "type": "float",
         "description": "秒回的概率",
-        "hint": "正好在看手机时回得飞快（0.4~1.6 秒）。这个「快」比「慢」更像真人，建议保留。",
-        "default": 0.15
+        "hint": "正好在看手机，一个字都不等直接发。这个「快」比「慢」更像真人，建议保留。",
+        "default": 0.2
+      },
+      "settle_min": {
+        "type": "float",
+        "description": "停顿最短秒数",
+        "hint": "不是秒回的时候，至少停这么久。",
+        "default": 0.3
+      },
+      "settle_max": {
+        "type": "float",
+        "description": "停顿最长秒数",
+        "hint": "在这两个值之间随机取，间隔才不规整。",
+        "default": 1.8
       },
       "long_pause_prob": {
         "type": "float",
-        "description": "长时间不回头的概率",
-        "hint": "命中后追加一段指数分布的长停顿（均值 8 秒，上限见下方）。这是让回复间隔不规整的关键。",
-        "default": 0.18
-      },
-      "long_pause_min": {
-        "type": "float",
-        "description": "长停顿最短秒数",
-        "hint": "",
-        "default": 5.0
+        "description": "手慢的概率",
+        "hint": "命中后追加一段指数分布的长停顿（均值 2.5 秒，上限见下一项）。这是让回复间隔不整齐的关键。",
+        "default": 0.12
       },
       "long_pause_max": {
         "type": "float",
-        "description": "长停顿最长秒数",
-        "hint": "",
-        "default": 22.0
+        "description": "手慢最多加几秒",
+        "hint": "长停顿的封顶值，防止一条消息等太久。",
+        "default": 5.0
       },
       "max_delay": {
         "type": "float",
-        "description": "总延迟上限（秒）",
-        "hint": "防止一次等太久把会话卡住。",
-        "default": 40.0
+        "description": "停顿总上限（秒）",
+        "hint": "所有加成之后的硬上限。深夜 + 手慢叠起来也不会超过它。",
+        "default": 12.0
       },
       "night_slowdown": {
         "type": "bool",
         "description": "深夜变慢",
-        "hint": "23:30~06:00 延迟乘 1.7，并且不回的概率翻倍。",
+        "hint": "23:30~06:00 停顿乘 1.8。",
         "default": true
       },
       "typing_indicator": {
         "type": "bool",
         "description": "显示「正在输入」",
-        "hint": "取决于协议端是否支持（NapCat 支持 set_group_typing 时有效）。",
+        "hint": "请求模型之前先发一个 typing 状态，取决于协议端是否支持（NapCat 支持）。",
         "default": true
       }
     }
   },
-  "silence": {
+  "tools": {
     "type": "object",
-    "description": "🤐 不回消息",
+    "description": "🎯 引用 / 艾特（把话对准人）",
+    "hint": "QQ 工具箱（astrbot_plugin_qq_tools）提供了引用回复工具 reply_to，以及正文里写 [At:QQ号] 转成真实艾特。模型默认几乎不会主动用这两样——除非提示词明说「什么时候该用」。这里补的就是那一句，让对话有指向性。",
     "default": {},
     "items": {
-      "prob": {
-        "type": "float",
-        "description": "被叫到也不回的基础概率",
-        "hint": "0.12 表示 12%。真人不是每次被叫到都会回，偶尔漏看一条是最强的'像人'信号。",
-        "default": 0.12
-      },
-      "never_silent_on_question": {
+      "guide": {
         "type": "bool",
-        "description": "直接提问时必回",
-        "hint": "带上「在吗/？」这种就一定会回，避免看起来像掉线。",
+        "description": "在提示词里引导它用引用 / 艾特",
+        "hint": "只在群里生效（私聊里 @ 没有意义）。关掉后提示词里完全不会提这两样。",
         "default": true
       },
-      "spam_window": {
-        "type": "int",
-        "description": "连续 @ 的判定窗口（秒）",
-        "hint": "窗口内被 @ 达到 3 次会掉脾气。",
-        "default": 120
+      "reply_quote": {
+        "type": "bool",
+        "description": "允许引用（reply_to 工具）",
+        "hint": "要求它接的不是最新那条、或者好几个人同时在说话时，引用那一条。只在真的检测到 reply_to 工具时才写进提示词。",
+        "default": true
       },
-      "cooldown": {
-        "type": "int",
-        "description": "两次「不回」之间的最短间隔（秒）",
-        "hint": "刚无视过一次，这段时间内必须接话——连着两次不理人比说话难听还伤人。0 = 关掉这条保护。",
-        "default": 900
+      "at_user": {
+        "type": "bool",
+        "description": "允许艾特（[At:QQ号]）",
+        "hint": "要求它想点名让某个人接话时，在正文里写 [At:QQ号]。依赖 QQ 工具箱的「自动艾特转换」开着。",
+        "default": true
       }
     }
   },
   "mood": {
     "type": "object",
     "description": "🌡️ 情绪（三条轴：活力 / 情绪 / 脾气）",
-    "hint": "以前只有一个「心情」标量，提示词全落在「句子短一点」上，所以读起来永远是同一个懒散。现在拆成三条独立的轴：懒散↔活力、伤心↔开心、生气↔温柔。被夸、被骂、被催、被拉去玩、有人关心你，都会推对应的那条；推完「按住」几分钟不回弹，之后慢慢淡回基线。没发生什么的时候不写状态词——默认是「平常」，不是「懒散」。",
+    "hint": "三条独立的轴：懒散↔活力、伤心↔开心、生气↔温柔。被夸、被骂、被催、被拉去玩、有人关心你，都会推对应的那条；推完「按住」几分钟不回弹，之后慢慢淡回基线。没发生什么的时候不写状态词——默认是「平常」，不是「懒散」。",
     "default": {},
     "items": {
       "enable": {
@@ -239,20 +223,20 @@
       "annoy_step": {
         "type": "float",
         "description": "被连续 @ 掉多少脾气",
-        "hint": "120 秒内被 @ 三次，脾气就掉这么多，同时掉四成的活力。",
+        "hint": "窗口内被 @ 三次，脾气就掉这么多，同时掉四成的活力。",
         "default": 0.15
+      },
+      "annoy_window": {
+        "type": "int",
+        "description": "连续 @ 的判定窗口（秒）",
+        "hint": "窗口内被 @ 满三次算「刷屏」，掉一次脾气后重新计数。",
+        "default": 120
       },
       "react_scale": {
         "type": "float",
         "description": "情绪变化的整体倍率",
         "hint": "1.0 是原样。嫌反应太淡调到 1.4，嫌太跳调到 0.6；0 等于关掉「被话推着走」，只剩基线和衰减。",
         "default": 1.0
-      },
-      "ignored_cooldown": {
-        "type": "int",
-        "description": "「被无视」的最短间隔（秒）",
-        "hint": "刚说完话、群里却接着聊别的，会掉一点情绪和活力。热群里这个判定很频繁，所以十分钟最多算一次。",
-        "default": 600
       },
       "baseline": {
         "type": "float",
@@ -303,6 +287,18 @@
         "description": "记住群里最近几句人话",
         "hint": "上面几道保险全靠这个判断「谁已经说定什么」「谁在起哄」「话题翻到哪了」。0 = 全部关闭。",
         "default": 12
+      },
+      "hide_errors": {
+        "type": "bool",
+        "description": "报错只写日志，不发到群里",
+        "hint": "模型接口 400/500 时 AstrBot 会把错误正文当成回复发出去（里面带着 provider 返回的 JSON，群友看了只会一头雾水）。打开后这条只进日志。",
+        "default": true
+      },
+      "scrub_images": {
+        "type": "bool",
+        "description": "修掉历史里模型不认的图片块",
+        "hint": "历史里 url 缺失、或者不是 data:/http 的图片块会被原样发给模型，text-only 的模型直接 400，整轮回复就没了。打开后换成 [图片]。",
+        "default": true
       }
     }
   },
@@ -316,57 +312,6 @@
         "description": "记住自己说过的几句",
         "hint": "会作为「你最近说过」塞进提示词，防止前后矛盾或复读。0 = 关闭。",
         "default": 6
-      }
-    }
-  },
-  "initiative": {
-    "type": "object",
-    "description": "🗣️ 主动插话",
-    "default": {},
-    "items": {
-      "enable": {
-        "type": "bool",
-        "description": "允许偶尔插一句",
-        "hint": "没被 @ 时也有小概率自己开口。真人会接话，只会应答的反而像客服。",
-        "default": true
-      },
-      "prob": {
-        "type": "float",
-        "description": "每条消息插话的概率",
-        "hint": "0.06 表示 6%。太高会变回 angel_heart 那种抢话型 bot，建议 0.03~0.08。",
-        "default": 0.06
-      }
-    }
-  },
-  "followup": {
-    "type": "object",
-    "description": "💬 接话头（不 @ 也接）",
-    "hint": "真人回你的时候经常既不 @ 也不引用，就挨着你上一条往下说（像在动态底下直接回一句）。开着它，这种话才会被当成是在跟你说。",
-    "default": {},
-    "items": {
-      "enable": {
-        "type": "bool",
-        "description": "允许接没 @ 我的话",
-        "hint": "只在你刚说过话之后的一小段时间内生效，且连续接话有上限，不会变成「谁说一句都答」。",
-        "default": true
-      },
-      "prob": {
-        "type": "float",
-        "description": "接住的概率",
-        "hint": "0.65 表示这类话有 65% 会被你接住，剩下的当作没看见——真人也有漏看的。",
-        "default": 0.65
-      },
-      "window": {
-        "type": "int",
-        "description": "只在这个窗口内算「接着我说」（秒）",
-        "hint": "你上一条发出后的多少秒内，别人紧接着说的话算在接你。240 = 4 分钟。",
-        "default": 240
-      },
-      "max_chain": {
-        "type": "int",
-        "description": "连续接话上限（轮）",
-        "hint": "一次对话最多让你连回几轮，超过就停，等下次被 @ 重新开始。防止两个人无限来回。",
-        "default": 3
       }
     }
   }

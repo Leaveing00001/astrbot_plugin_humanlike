@@ -1,6 +1,7 @@
 """离线验证 astrbot_plugin_humanlike 的文本处理与状态逻辑。
 
-覆盖：清洗 / 拆条 / 情绪三条轴 / 沉默 / 反露馅四道保险 / 私聊 / 提示词契约。
+覆盖：清洗 / 拆条 / 情绪三条轴 / 输出后节奏 / 引用艾特引导 / 反露馅四道保险 /
+私聊 / 报错拦截 / 历史图片块修复 / 提示词契约。
 不启动 AstrBot、不连 QQ，只加载插件模块并直接调用内部方法。
 
 跑法（需要 AstrBot 的 Python 环境，或先 pip install astrbot）：
@@ -39,18 +40,19 @@ CONFIG = {
     "style": {"max_chars": 20, "target_chars": 10, "split_prob": 0.0,
               "strip_action": True, "strip_markdown": True,
               "drop_trailing_period": True, "keep_ellipsis": True},
-    "timing": {"read_min": 0.0, "read_max": 0.0, "think_min": 0.0, "think_max": 0.0,
-               "long_pause_prob": 0.0, "max_delay": 1.0, "night_slowdown": False},
-    "silence": {"prob": 0.0, "never_silent_on_question": True, "spam_window": 120,
-                "cooldown": 900},
+    "timing": {"enable": True, "fast_reply_prob": 0.0, "settle_min": 0.0,
+               "settle_max": 0.0, "long_pause_prob": 0.0, "long_pause_max": 0.0,
+               "max_delay": 5.0, "night_slowdown": False, "typing_indicator": False},
+    "tools": {"guide": True, "reply_quote": True, "at_user": True},
     "mood": {"enable": True, "energy_baseline": 0.42, "spirits_baseline": 0.56,
              "temper_baseline": 0.68, "decay_per_hour": 1.0, "annoy_step": 0.15,
-             "react_scale": 1.0, "ignored_cooldown": 600, "edge": 0.3,
+             "annoy_window": 120, "react_scale": 1.0, "edge": 0.3,
              "temper_floor": 0.15},
     "consistency": {"self_lines": 6},
     "guards": {"dedupe_stance": True, "attribute_transfer": True,
                "fact_conflict": True, "drop_stale": False,
-               "tease_reaction": True, "recent_human": 12},
+               "tease_reaction": True, "recent_human": 12,
+               "hide_errors": True, "scrub_images": True},
 }
 
 plugin = mod.HumanLikePlugin(None, CONFIG)
@@ -270,27 +272,12 @@ plugin.config["prompt_extra"] = ""
 # 3.13 契约里有"状态不好不许刻薄"这条硬规则
 check("契约含规则 17（不刻薄）", "不表现为刻薄" in c_extra, "")
 
-# 3.14 刚无视过一次，下一次必须接
-qm = plugin._session("default:GroupMessage:888888871")
-plugin.config["silence"] = {"prob": 0.99, "never_silent_on_question": False,
-                            "spam_window": 120, "cooldown": 900}
-qm["last_silence_at"] = time.time()
-check("刚不回过的 15 分钟内必须接", plugin._should_silence(qm, "在吗") is False)
-qm["last_silence_at"] = 0.0
-check("冷却过了才会再次不回", plugin._should_silence(qm, "在吗") is True)
-plugin.config["silence"] = {"prob": 0.0, "never_silent_on_question": True,
-                            "spam_window": 120, "cooldown": 900}
-
-# ── 4. 沉默策略 ──────────────────────────────────────────
-plugin.config["silence"]["prob"] = 0.99
-q = plugin._should_silence(sess, "在吗？")
-check("直接提问不沉默", q is False, f"silence={q}")
-
-plugin.config["silence"]["never_silent_on_question"] = False
-q2 = plugin._should_silence(sess, "在吗？")
-check("关闭保护后可沉默", q2 is True, f"silence={q2}")
-plugin.config["silence"]["never_silent_on_question"] = True
-plugin.config["silence"]["prob"] = 0.0
+# 3.14 「回不回」已经交回上游：插件里不该再有任何"选择不回 / 插话 / 接话头"的东西
+check("不再有 _should_silence", not hasattr(plugin, "_should_silence"))
+check("不再有 _should_interject", not hasattr(plugin, "_should_interject"))
+check("不再有 _is_follow_up", not hasattr(plugin, "_is_follow_up"))
+check("不再有 human_gate 钩子", not hasattr(plugin, "human_gate"))
+check("不再有 _silence", not hasattr(plugin, "_silence"))
 
 # ── 5. 提示词契约 ────────────────────────────────────────
 plugin.config["style"]["split_prob"] = 0.35
@@ -419,51 +406,92 @@ for name, cond in {
 }.items():
     check(name, cond, "")
 
-# ── 8. 接话头：不 @ 也接 ─────────────────────────────────
-plugin.config["followup"] = {"enable": True, "prob": 1.0, "window": 240, "max_chain": 3}
+# ── 8. 节奏：输出到手之后才算 ────────────────────────────
 sess8 = plugin._session("default:GroupMessage:777770002")
-sess8["last_reply_at"] = time.time() - 5
-sess8["prev_was_self"] = True
-sess8["self_lines"] = ["那个群天天挂人，烦"]
-sess8["follow_chain"] = 0
 
-check("紧挨着我上一条 → 接住", plugin._is_follow_up(sess8, "原因是给人骂破防了") is True)
-sess8["prev_was_self"] = False
-check("中间夹了别人、又没词重合 → 不接",
-      plugin._is_follow_up(sess8, "今晚吃什么") is False)
-check("有词重合 → 还是接住", plugin._is_follow_up(sess8, "那个群确实烦") is True)
+plugin.config["timing"].update({"enable": True, "fast_reply_prob": 1.0})
+check("秒回概率拉满 → 不停顿", plugin._delivery_pause(sess8) == 0.0)
 
-sess8["prev_was_self"] = True
-check("纯附和「算」不接", plugin._is_follow_up(sess8, "算") is False)
-check("纯附和「笑死」不接", plugin._is_follow_up(sess8, "笑死") is False)
-check("「嗯」不接", plugin._is_follow_up(sess8, "嗯") is False)
-check("有实义的四字以内照接", plugin._is_follow_up(sess8, "骂得好") is True)
-sess8["prev_was_self"] = False
+plugin.config["timing"].update({"fast_reply_prob": 0.0, "settle_min": 2.0,
+                                "settle_max": 2.0, "long_pause_prob": 0.0,
+                                "night_slowdown": False})
+pause = plugin._delivery_pause(sess8)
+check("不秒回时按停顿范围停", 1.9 <= pause <= 2.1, f"{pause:.2f}s")
 
-sess8["last_reply_at"] = time.time() - 600
-check("超过窗口就不接", plugin._is_follow_up(sess8, "原因是给人骂破防了") is False)
-sess8["last_reply_at"] = time.time() - 5
+plugin.config["timing"]["max_delay"] = 0.5
+check("总上限压得住", plugin._delivery_pause(sess8) <= 0.5, f"{plugin._delivery_pause(sess8):.2f}s")
 
-sess8["prev_was_self"] = True
-sess8["follow_chain"] = 3
-sess8["follow_chain_at"] = time.time()
-check("连到上限就停", plugin._is_follow_up(sess8, "绷不住了") is False)
-sess8["follow_chain"] = 0
-check("窗口过了自动重置连击计数", True, "")
+plugin.config["timing"]["enable"] = False
+check("关掉节奏后完全不停", plugin._delivery_pause(sess8) == 0.0)
+plugin.config["timing"].update({"enable": True, "max_delay": 5.0,
+                                "settle_min": 0.0, "settle_max": 0.0})
 
-plugin.config["followup"]["enable"] = False
-check("关掉后完全不接", plugin._is_follow_up(sess8, "绷不住了") is False)
-plugin.config["followup"]["enable"] = True
 
-ev8 = FakeEvent("原因是给人骂破防了", at=False)
-ev8.set_extra("humanlike_followup", True)
-c8 = plugin._build_contract(ev8, sess8)
-checks8 = {
-    "契约含接话头情境": "接着你上一条在说" in c8,
-    "契约要求别问跟谁说": "跟谁说" in c8,
-}
-for k, v in checks8.items():
-    check(k, v, "")
+# ── 8.1 引用 / 艾特：只在有工具、且在群里时才写进提示词 ──
+class FakeTool:
+    def __init__(self, name):
+        self.name = name
+
+
+class FakeToolSet:
+    def __init__(self, *names):
+        self.tools = [FakeTool(n) for n in names]
+
+    def names(self):
+        return [t.name for t in self.tools]
+
+
+class FakeReq:
+    def __init__(self, *tools):
+        self.func_tool = FakeToolSet(*tools) if tools else None
+
+
+with_tool = plugin._build_contract(
+    FakeEvent("周六带不带酒"), sess8, FakeReq("reply_to", "get_recent_messages"))
+check("有 reply_to 时提示引用", "reply_to" in with_tool, "")
+check("提示写艾特标记", "[At:QQ号]" in with_tool, "")
+check("提示限定一条最多一个", "最多加一个" in with_tool, "")
+
+without_tool = plugin._build_contract(FakeEvent("周六带不带酒"), sess8, FakeReq())
+check("没有 reply_to 就不提引用", "reply_to" not in without_tool, "")
+check("没有 reply_to 仍然提示艾特", "[At:QQ号]" in without_tool, "")
+
+no_req = plugin._build_contract(FakeEvent("周六带不带酒"), sess8)
+check("拿不到工具列表时不画饼", "reply_to" not in no_req, "")
+
+private_line = plugin._build_contract(
+    FakeEvent("在吗", umo="default:FriendMessage:2173955614"),
+    plugin._session("default:FriendMessage:2173955614"),
+    FakeReq("reply_to"),
+)
+check("私聊不提引用 / 艾特",
+      "[At:QQ号]" not in private_line and "reply_to" not in private_line, "")
+
+plugin.config["tools"]["guide"] = False
+check("关掉引导后完全不提",
+      "reply_to" not in plugin._build_contract(
+          FakeEvent("在吗"), sess8, FakeReq("reply_to")))
+plugin.config["tools"]["guide"] = True
+
+# ── 8.2 艾特标记不会被清洗 / 截断切坏 ────────────────────
+plugin.config["style"]["max_chars"] = 40
+s_at = plugin._sanitize("[At:123456789] 你去啊，我不去")
+check("艾特标记完整保留", s_at.startswith("[At:123456789]"), repr(s_at))
+
+plugin.config["style"]["max_chars"] = 20
+s_cut = plugin._sanitize("好的好的好的好的好的好的好的[At:123456789]")
+check("截断不会留下半截艾特标记", "[At" not in s_cut, repr(s_cut))
+check("截断后没有残留占位符", "@@AT" not in s_cut and "@@" not in s_cut, repr(s_cut))
+plugin.config["style"]["max_chars"] = 20
+
+plugin.config["style"]["split_prob"] = 1.0
+bubbles_at = plugin._split_bubbles("[At:123456789] 周末啊，大概率不动")
+check("拆条时艾特跟着第一句走",
+      len(bubbles_at) == 2 and bubbles_at[0].startswith("[At:123456789]"),
+      repr(bubbles_at))
+check("拆条不会把艾特拆成单独一条",
+      all(b.strip() != "[At:123456789]" for b in bubbles_at), repr(bubbles_at))
+plugin.config["style"]["split_prob"] = 0.0
 
 # ── 9. 私聊 ──────────────────────────────────────────────
 class PrivateEvent(FakeEvent):
@@ -548,24 +576,120 @@ class GatePrivateEvent(FlagEvent):
         return self._uid
 
 
-# 私聊不静默：静默概率拉满也不静默，而且要把他说的这句记下来
-plugin.config["silence"] = {"prob": 1.0, "never_silent_on_question": True,
-                            "spam_window": 120}
-plugin.config["followup"] = {"enable": False, "prob": 0.0, "window": 240, "max_chain": 1}
-plugin.config["initiative"] = {"prob": 0.0}
+# ── 10. 只记事，不裁决 ───────────────────────────────────
+sess_p = plugin._session("default:FriendMessage:2173955614")
+sess_p["recent_human"] = []
+before_p = plugin._emo_now(sess_p)
 
 ev_p = GatePrivateEvent("今天好累")
-asyncio.run(plugin.human_gate(ev_p))
-check("私聊不静默", ev_p.stopped is False)
-check("私聊不拦 LLM", False not in ev_p.llm_flags, str(ev_p.llm_flags))
-sess_p = plugin._session("default:FriendMessage:2173955614")
-check("私聊也记下他说的话", len(sess_p.get("recent_human") or []) >= 1,
+asyncio.run(plugin.note_incoming(ev_p))
+check("私聊：不会让事件停下", ev_p.stopped is False)
+check("私聊：不关 LLM", False not in ev_p.llm_flags, str(ev_p.llm_flags))
+check("私聊：记下他说的话", len(sess_p.get("recent_human") or []) == 1,
       str(sess_p.get("recent_human"))[:60])
 
-# 同样的文本、同样的配置，群里就会被静默 —— 证明上一条不是空转
-ev_g = FlagEvent("今天好累", at=True)
-asyncio.run(plugin.human_gate(ev_g))
-check("群里同样条件会静默（对照）", ev_g.stopped is True)
+sess_g10 = plugin._session("default:GroupMessage:888888888")
+sess_g10["recent_human"] = []
+before_g = plugin._emo_now(sess_g10)
+ev_g = FlagEvent("你也太可爱了吧", at=True)
+asyncio.run(plugin.note_incoming(ev_g))
+check("群里：同样不拦截、不关 LLM",
+      ev_g.stopped is False and False not in ev_g.llm_flags, str(ev_g.llm_flags))
+check("群里：记下这句人话", len(sess_g10.get("recent_human") or []) == 1,
+      str(sess_g10.get("recent_human"))[:60])
+check("群里：被夸照样推情绪",
+      plugin._emo_now(sess_g10)["spirits"] > before_g["spirits"] + 0.1,
+      f"{before_g['spirits']:.2f} → {plugin._emo_now(sess_g10)['spirits']:.2f}")
+
+# ── 11. 报错：只写日志，不发出去 ─────────────────────────
+from astrbot.core.message.message_event_result import ResultContentType  # noqa: E402
+
+
+class ResEvent(FlagEvent):
+    """带结果的假事件，够 humanize_result 跑一遍。"""
+
+    def __init__(self, text, ctype=None, error_extra=False):
+        super().__init__(text, at=True)
+        self.result = mod.MessageEventResult().message(text)
+        if ctype is not None:
+            self.result.result_content_type = ctype
+        self.sent_result = None
+        if error_extra:
+            self.set_extra("_third_party_runner_error", True)
+
+    def get_result(self):
+        return self.result
+
+    def set_result(self, result):
+        self.sent_result = result
+        self.result = result
+
+    def clear_result(self):
+        self.cleared = True
+        self.result = None
+
+
+ERR_TEXT = (
+    "LLM 响应错误: All chat models failed: BadRequestError: Error code: 400 - "
+    "{'error': {'message': '.messages[10]: Unsupported image_url format', "
+    "'type': 'invalid_request_error'}}"
+)
+err_ev = ResEvent(ERR_TEXT)
+check("识别出这是上游报错", plugin._is_error_result(err_ev, err_ev.result) is True)
+
+asyncio.run(plugin.humanize_result(err_ev))
+check("报错被拦下（结果被清空）", err_ev.cleared is True)
+check("报错没有被改写发送", err_ev.sent_result is None)
+
+ok_ev = ResEvent("好呀，六点半", ctype=ResultContentType.LLM_RESULT)
+check("正常回复不算报错", plugin._is_error_result(ok_ev, ok_ev.result) is False)
+
+asyncio.run(plugin.humanize_result(ok_ev))
+check("正常回复照常发出去",
+      ok_ev.sent_result is not None and ok_ev.cleared is False,
+      repr(ok_ev.sent_result.get_plain_text() if ok_ev.sent_result else None))
+
+err_ev2 = ResEvent("随便一句", ctype=ResultContentType.AGENT_RUNNER_ERROR)
+check("runner error 类型也认", plugin._is_error_result(err_ev2, err_ev2.result) is True)
+err_ev3 = ResEvent("随便一句", error_extra=True)
+check("第三方 runner 错误标记也认", plugin._is_error_result(err_ev3, err_ev3.result) is True)
+
+plugin.config["guards"]["hide_errors"] = False
+err_ev4 = ResEvent(ERR_TEXT)
+asyncio.run(plugin.humanize_result(err_ev4))
+check("关掉开关后不再拦截（错误会照原样发出去）", err_ev4.cleared is False)
+plugin.config["guards"]["hide_errors"] = True
+
+# ── 12. 历史里的坏图片块会被换成 [图片] ──────────────────
+class FakeImgReq:
+    def __init__(self, contexts):
+        self.contexts = contexts
+        self.func_tool = None
+
+
+bad = FakeImgReq([
+    {"role": "user", "content": [
+        {"type": "text", "text": "看这个"},
+        {"type": "image_url", "image_url": {"url": "file:///tmp/a.png"}},
+    ]},
+])
+n_bad = plugin._scrub_history_images(bad)
+check("坏图片块被换成 [图片]",
+      n_bad == 1 and bad.contexts[0]["content"][1] == {"type": "text", "text": "[图片]"},
+      str(bad.contexts[0]["content"]))
+
+good = FakeImgReq([{"role": "user", "content": [
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
+]}])
+check("合法的 data: 图片不动", plugin._scrub_history_images(good) == 0)
+
+weird = FakeImgReq([{"role": "user", "content": [
+    {"type": "image_url", "image_url": "https://example.com/a.png"},
+]}])
+check("image_url 结构不对也被修掉", plugin._scrub_history_images(weird) == 1)
+
+plain = FakeImgReq([{"role": "user", "content": "就是一句话"}])
+check("纯文本历史不受影响", plugin._scrub_history_images(plain) == 0)
 
 # ── 汇总 ────────────────────────────────────────────────
 failed = [r for r in results if not r[1]]

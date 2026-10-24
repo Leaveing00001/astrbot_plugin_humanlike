@@ -18,18 +18,21 @@
       private_users: "",
       prompt_extra: "",
       style: { max_chars: 20, target_chars: 10, split_prob: 0.4 },
-      timing: { fast_reply_prob: 0.15, long_pause_prob: 0.18, night_slowdown: true },
-      silence: { prob: 0.12, cooldown: 900 },
+      timing: {
+        enable: true, fast_reply_prob: 0.2, settle_min: 0.3, settle_max: 1.8,
+        long_pause_prob: 0.12, long_pause_max: 5, max_delay: 12,
+        night_slowdown: true, typing_indicator: true,
+      },
+      tools: { guide: true, reply_quote: true, at_user: true },
       mood: {
         energy_baseline: 0.42, spirits_baseline: 0.56, temper_baseline: 0.68,
         edge: 0.3, temper_floor: 0.15, decay_per_hour: 1.0,
         react_scale: 1.0, annoy_step: 0.15,
       },
-      initiative: { prob: 0.06 },
-      followup: { prob: 0.5, max_chain: 2 },
+      guards: { hide_errors: true, scrub_images: true },
     },
     meta: {
-      version: "0.7.0",
+      version: "0.8.0",
       axes: [
         { key: "energy", low: "懒散", high: "活力", baseline: 0.42,
           bands: [[0.22, "懒得动", "", ""], [0.34, "有点没劲", "", ""], [0.62, "", "", ""],
@@ -149,7 +152,7 @@
     scope: ["生效范围", "决定叶铭在哪些群、哪些私聊里“有人的样子”。"],
     prompt: ["提示词", "不改代码就能调语气——这里的话优先级最高。"],
     mood: ["情绪", "活力、情绪、脾气三条轴；基线决定“平时是什么样”。"],
-    rhythm: ["节奏与沉默", "回多快、回多长、什么时候干脆不回。"],
+    rhythm: ["节奏", "完整回复到手之后，决定这条是秒回还是停一下。"],
     state: ["实时状态", "每个会话此刻的三条轴，以及一键安抚。"],
     about: ["关于", "这个插件做了什么，以及去哪看代码。"],
   };

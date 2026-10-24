@@ -1,17 +1,22 @@
 """astrbot_plugin_humanlike —— 给叶铭加一层"人味"。
 
 目标不是让机器人更聪明，而是让它更像群里的一个真人：
-它会有反应时间、会有心情、会被问烦、会不回消息、会说半句话。
+它会有反应时间、会有心情、会把话说短、会在生气时话少。
 
-四层机制（自上而下依次生效）：
+五层机制（按一次回复的先后顺序）：
 
-    节奏层  human_gate()        读 → 想 → 打字，三段随机延迟；偶尔长停顿
-    沉默层  _should_silence()   被 @ 也可能不回；直接提问则必回
-    情绪层  _emo_now()          活力/情绪/脾气三条轴各自回归基线，被夸、被催、被骂都会推它
+    记账层  note_incoming()        只记事：把人话记下来、按内容推情绪。不裁决回不回
+    提示层  shape_request()        把「怎么说」和「什么时候该引用/艾特」写进提示词
     形态层  on_decorating_result() 清洗 Markdown / 括号动作 / 客套腔，压强短句
+    节奏层  _delivery_pause()      完整回复到手之后才决定：秒回，还是停一下再发
+    兜底层  _is_error_result()     LLM 报错只写日志，绝不发进群里
+
+「这条要不要回」「要不要主动接话」全部交回上游（AstrBot 自己、Proactive Chat、
+angel_heart 等）决定——本插件不再看门、不再插话、也不再抢话，只在上游已经
+生成出完整回复之后动手，管它「发多久、说多短、什么语气」。
 
 人格本身仍由 AstrBot 的「叶铭（认主）」提供，本插件只改「怎么说」，
-不改「是谁」。默认关闭，必须在配置里填 groups 才生效。
+不改「是谁」。
 """
 
 from __future__ import annotations
@@ -43,7 +48,7 @@ except Exception:  # pragma: no cover - 兼容老版本
     _WEB_API = False
 
 PLUGIN_NAME = "astrbot_plugin_humanlike"
-_PLUGIN_VERSION = "0.7.0"
+_PLUGIN_VERSION = "0.8.0"
 PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
 
 # ────────────────────────── 文本清洗 ──────────────────────────
@@ -64,6 +69,28 @@ _RE_INLINE_SPACE = re.compile(r"[ \t\u3000]+")
 _RE_BLANK = re.compile(r"\s*\n+\s*")
 _RE_TRAILING_DOT = re.compile(r"[。.]+$")
 _RE_SENT_SPLIT = re.compile(r"(?<=[。！？!?])")
+# 模型自己输出的艾特标记，交给 QQ 工具箱（enable_auto_at_conversion）转成真实 At。
+# 先占位再还原，免得截断/清洗把 "[At:123456]" 切成半截发出去。
+_RE_AT_MARK = re.compile(r"\[At:(\d{4,12})\]")
+_RE_AT_TOKEN = re.compile(r"@@AT(\d{1,3})@@")
+_RE_AT_LEAD = re.compile(r"^(\[At:\d{4,12}\][\s\u200b]*)")
+_RE_AT_TRUNC = re.compile(r"\[At:?[^\]]*$")
+
+# 上游出错时 AstrBot 会把错误文本当回复发出来。下面这些开头一出现，
+# 就说明这条不是叶铭说的话，而是给运维看的——拦下来写日志，别让群友看见。
+_ERROR_HEADS = (
+    "LLM 响应错误",
+    "LLM 请求失败",
+    "All chat models failed",
+    "Error occurred during AI execution",
+    "Error occurred while processing agent request",
+)
+# 只有同时出现这两段，才算「模型接口报了 HTTP 错」，避免误杀正常聊到报错的对话
+_ERROR_BODY = ("Error code:", "'error'")
+
+# 历史里的图片内容块能被模型接受的 url 形态
+_OK_IMAGE_PREFIX = ("data:", "http://", "https://")
+
 # 句首的连接词/助手腔开场，只削掉这几个字，不连坐整句
 _RE_AI_LEAD = re.compile(
     r"^\s*(?:首先|其次|另外|然后|总之|总的来说|总而言之|总结一下|需要注意的是|值得一提的是)"
@@ -204,12 +231,8 @@ _TOPIC_STOP = set(
     "在过又才被把给对从向与或而且然后所以但是什么怎么这个那个"
 )
 
-# 纯附和：这种话不算"在跟你说"，别每句都应一声（真人不会）
-_FILLER_ONLY = (
-    r"^(?:嗯+|哦+|噢+|喔+|额+|呃+|好+|好的|行|可|可以|收到|了解|明白|懂了|ok|okay|"
-    r"hh+|哈+|草|艹|笑死|乐|确实|对的?|是的|好耶|啊这|1+|\+1|6+|牛|绝了|"
-    r"算|算吧|反正|随便|都行|也行|不|没有|没)[\s。.!！~～…?？]*$"
-)
+# 纯附和（嗯/好/笑死/算）不再需要单独判据：回不回已经交回上游，
+# 这里只保留「被起哄」的识别表。
 
 
 def _strip_lead(s: str, words: tuple[str, ...]) -> str:
@@ -430,8 +453,8 @@ class HumanLikePlugin(Star):
             StarTools.get_data_dir(PLUGIN_NAME) / "state.json"
         )
         self._state: dict = {"sessions": {}}
-        self._gen: dict[str, int] = {}
         self._last_save: float = 0.0
+        self._img_warned: set[str] = set()
         self._save_lock = asyncio.Lock()
 
     # ───────────────────────── 生命周期 ─────────────────────────
@@ -633,16 +656,6 @@ class HumanLikePlugin(Star):
             logger.debug(f"[humanlike] 情绪变化 {deltas} ← {body[:20]!r}")
             return  # 一句话只按最先命中的那一类算：同时涨同时跌等于没变
 
-    def _note_ignored(self, sess: dict) -> None:
-        """刚说完话，群里接着聊别的、没人接他的茬——真人会有一点点失落。"""
-        if not self._cb("mood.enable", True) or not sess.get("prev_was_self"):
-            return
-        now = time.time()
-        if now - _coerce_float(sess.get("ignored_ts"), 0) < self._cf("mood.ignored_cooldown", 600):
-            return
-        sess["ignored_ts"] = now
-        self._bump_emo(sess, {"spirits": -0.05, "energy": -0.04}, 300)
-
     def _remember_self(self, sess: dict, text: str) -> None:
         limit = self._ci("consistency.self_lines", 6)
         if limit <= 0 or not text:
@@ -787,80 +800,48 @@ class HumanLikePlugin(Star):
             + "。"
         )
 
-    # ───────────────────────── 节奏 / 沉默 ─────────────────────────
+    # ───────────────────── 节奏：输出到手之后 ─────────────────────
 
     def _is_night(self) -> bool:
         now = datetime.now()
         minutes = now.hour * 60 + now.minute
         return minutes >= 23 * 60 + 30 or minutes < 6 * 60
 
-    def _plan_think(self, sess: dict, text: str) -> float:
-        """只算"想 + 打字"这段；"读消息"的停顿在 human_gate 里。"""
-        emo = self._emo_now(sess)
-        # 有一小部分时候人正好在看手机，回得飞快——这种"快"比"慢"更像真人
-        if random.random() < self._cf("timing.fast_reply_prob", 0.15):
-            return random.uniform(0.3, 1.2)
+    def _delivery_pause(self, sess: dict) -> float:
+        """完整回复已经到手，这一段只在「发出去之前」停一下。
 
-        think = random.uniform(
-            self._cf("timing.think_min", 0.8), self._cf("timing.think_max", 3.0)
-        )
-        if len(text) > 40:
-            think += 0.6
-        if emo["spirits"] < 0.3 or emo["energy"] < 0.24:
-            think += random.uniform(0.4, 1.6)  # 情绪低落、没劲，想得慢
+        回不回、要不要接话都归上游管，这里只管一条：这条是秒回，还是隔一会儿再发。
+        停在收到完整回复之后，所以既不会拖慢模型，也不会把上游的决策改掉。
+        """
+        if not self._cb("timing.enable", True):
+            return 0.0
+        # 正好在看手机：不假装犹豫，直接发
+        if random.random() < self._cf("timing.fast_reply_prob", 0.2):
+            return 0.0
+
+        lo = max(0.0, self._cf("timing.settle_min", 0.3))
+        hi = max(lo, self._cf("timing.settle_max", 1.8))
+        pause = random.uniform(lo, hi)
+
+        emo = self._emo_now(sess)
+        if emo["energy"] < 0.24 or emo["spirits"] < 0.28:
+            pause *= 1.35  # 没劲、情绪低，手也慢
         if emo["temper"] < 0.28:
-            think *= 0.75  # 气头上打字又快又短
+            pause *= 0.8  # 气头上反而打得又快又短
         if self._is_night() and self._cb("timing.night_slowdown", True):
-            think *= 1.7
-        # 重尾分布：偶尔人不在手机旁，间隔拉得很长且不规整
-        if random.random() < self._cf("timing.long_pause_prob", 0.18):
-            tail = random.expovariate(1.0 / 8.0)
-            think += min(tail, self._cf("timing.long_pause_max", 30.0))
-        return max(0.2, min(think, self._cf("timing.max_delay", 40.0)))
+            pause *= 1.8
 
-    def _should_interject(self, sess: dict, event: AstrMessageEvent, text: str) -> bool:
-        """没被叫到时，偶尔自己插一句。"""
-        if not self._cb("initiative.enable", True):
-            return False
-        prob = self._cf("initiative.prob", 0.06)
-        if prob <= 0 or len(text) < 4:
-            return False
-        emo = self._emo_now(sess)
-        if emo["energy"] < 0.3 or emo["temper"] < 0.35 or emo["spirits"] < 0.24:
-            return False  # 没劲 / 正在气头上 / 情绪低落，都不凑热闹
-        prob *= 0.6 + emo["energy"]  # 有活力才更爱接话
-        if time.time() - _coerce_float(sess.get("last_reply_at"), 0) < 45:
-            return False  # 刚说过话，别连着刷存在感
-        if self._is_night():
-            prob *= 0.7
-        return random.random() < prob
+        # 重尾：偶尔正好没看手机，停得比平时久，间隔才不规整
+        if random.random() < self._cf("timing.long_pause_prob", 0.12):
+            tail = random.expovariate(1.0 / 2.5)
+            pause += min(tail, max(0.0, self._cf("timing.long_pause_max", 5.0)))
 
-    def _should_silence(self, sess: dict, text: str) -> bool:
-        prob = self._cf("silence.prob", 0.12)
-        if prob <= 0:
-            return False
-        # 刚无视过一次，这次必须接：连着两次不理人，比说话难听还伤人
-        if time.time() - _coerce_float(sess.get("last_silence_at"), 0) < self._cf(
-            "silence.cooldown", 900
-        ):
-            return False
-        if self._cb("silence.never_silent_on_question", True):
-            if any(k in text for k in ("?", "？", "在吗", "在不在", "在么")):
-                prob = 0.0
-        if self._is_night() and self._cb("timing.night_slowdown", True):
-            prob *= 2.0
-        emo = self._emo_now(sess)
-        if emo["temper"] < 0.3:
-            prob *= 1.4  # 生气的时候更不想理，但只抬一点，别变成不理人
-        if emo["energy"] < 0.2:
-            prob *= 1.3  # 没劲
-        if emo["spirits"] > 0.75 and emo["energy"] > 0.6:
-            prob *= 0.7  # 高兴又有劲，愿意多说两句
-        return prob > 0 and random.random() < prob
+        cap = max(0.0, self._cf("timing.max_delay", 12.0))
+        return max(0.0, min(pause, cap))
 
     def _track_at(self, sess: dict) -> None:
         """记录被 @ 的时间，短时间内连发才掉心情；隔久了自然重置。"""
-        window = self._ci("silence.spam_window", 120)
+        window = self._ci("mood.annoy_window", 120)
         now = time.time()
         times = sess.get("at_times")
         if not isinstance(times, list):
@@ -875,22 +856,6 @@ class HumanLikePlugin(Star):
             step = self._cf("mood.annoy_step", 0.15)
             self._bump_emo(sess, {"temper": -step, "energy": -step * 0.4}, 300)
             sess["at_times"] = [now]
-
-    @staticmethod
-    def _silence(event: AstrMessageEvent) -> None:
-        """让这条消息既不请求 LLM 也不发送。"""
-        try:
-            event.clear_result()
-        except Exception:
-            pass
-        try:
-            event.should_call_llm(False)
-        except Exception:
-            pass
-        try:
-            event.stop_event()
-        except Exception:
-            pass
 
     # ───────────────────── 反露馅硬保险（后处理层） ─────────────────────
     #
@@ -1028,48 +993,20 @@ class HumanLikePlugin(Star):
         sess["react_used"] = (used + [pick])[-12:]
         return pick
 
-    # ───────────────────── 接话头：不 @ 也接得上 ─────────────────────
-
-    def _is_follow_up(self, sess: dict, text: str) -> bool:
-        """真人接你的话时，经常既不 @ 也不引用，就挨着你上一条往下说。
-
-        只认两种情形：①中间没人插话，这句紧挨着我上一条；②和我说过的话有实词重合。
-        都要落在 followup.window 秒内，且连续接话不超过 max_chain 轮——
-        不然就变成"谁说一句都答"的客服了。
-        """
-        if not self._cb("followup.enable", True):
-            return False
-        if len(text) < 2:
-            return False
-        last = _coerce_float(sess.get("last_reply_at"), 0)
-        if not last or time.time() - last > self._cf("followup.window", 240):
-            return False
-
-        chain = int(_coerce_float(sess.get("follow_chain"), 0))
-        if chain > 0 and time.time() - _coerce_float(sess.get("follow_chain_at"), 0) > self._cf(
-            "followup.window", 240
-        ):
-            sess["follow_chain"] = 0
-            chain = 0
-        if chain >= self._ci("followup.max_chain", 3):
-            return False
-
-        adjacent = bool(sess.get("prev_was_self"))
-        mine = " ".join(str(x) for x in (sess.get("self_lines") or [])[-3:])
-        overlap = _topic_set(text) & _topic_set(mine)
-        if not adjacent and len(overlap) < 2:
-            return False
-        # 别人只是「嗯/算/笑死」这种接一下，不算在跟你说话——真人不会每次都应一声
-        if len(text.strip()) <= 4 and re.search(_FILLER_ONLY, text.strip()):
-            return False
-        return random.random() < self._cf("followup.prob", 0.65)
-
-    # ───────────────────────── 钩子：节奏与沉默 ─────────────────────────
+    # ───────────────────────── 钩子：只记事，不裁决 ─────────────────────────
 
     @filter.event_message_type(
         filter.EventMessageType.GROUP_MESSAGE | filter.EventMessageType.PRIVATE_MESSAGE
     )
-    async def human_gate(self, event: AstrMessageEvent) -> None:
+    async def note_incoming(self, event: AstrMessageEvent) -> None:
+        """把这句话记下来，并按它推一下情绪。
+
+        「这条要不要回」「要不要主动接一句」都不归这里管——那是上游（AstrBot 自己、
+        Proactive Chat、angel_heart）的活。插件要是再判一次，两边就会打架：
+        一边想回、一边按概率掐掉，最后表现成"有时候莫名其妙不理人"。
+        这里只做两件上游做不到的事：记住人话（反露馅保险要拿它当判据），
+        以及让被夸被骂真的会改变它的语气。
+        """
         try:
             if not self._enabled_for(event):
                 return
@@ -1081,8 +1018,6 @@ class HumanLikePlugin(Star):
             umo = str(event.unified_msg_origin or "")
             sess = self._session(umo)
 
-            # 不管叫没叫到自己，先把这句人话记下来——反露馅保险全靠它判断
-            # "谁已经说定什么""谁刚起哄""话题翻到哪了"。
             try:
                 name = str(event.get_sender_name() or "").strip()
             except Exception:
@@ -1095,77 +1030,15 @@ class HumanLikePlugin(Star):
             addressed = private or bool(getattr(event, "is_at_or_wake_command", False))
             self._emo_react(sess, text, 1.0 if addressed else 0.4)
 
-            if private:
-                # 私聊里对方就是在跟你说话：不静默、不判插话、也不按"只回最后一条"作废。
-                # 这里只把他说的话记下来（反露馅保险要用），然后交给主 LLM 正常回。
-                self._schedule_save()
-                return
-
-            if getattr(event, "is_at_or_wake_command", False):
+            # 短时间被连着 @ 才会掉脾气；私聊里没有"@到自己"这回事
+            if not private and getattr(event, "is_at_or_wake_command", False):
                 self._track_at(sess)
-                sess["follow_chain"] = 0
-            else:
-                # 没被叫到：先看这句是不是接着我刚才那条在说（真人经常不 @ 也不引用），
-                # 不是的话再考虑偶自己插一句。
-                if self._is_follow_up(sess, text):
-                    if int(_coerce_float(sess.get("follow_chain"), 0)) <= 0:
-                        sess["follow_chain_at"] = time.time()
-                    sess["follow_chain"] = int(_coerce_float(sess.get("follow_chain"), 0)) + 1
-                    sess["prev_was_self"] = False
-                    event.set_extra("humanlike_followup", True)
-                    logger.info(f"[humanlike] 接着我上一条往下接：{text[:20]!r}")
-                    try:
-                        # 只把「当成在叫我」这件事告诉管线。
-                        # 注意：不要调 should_call_llm —— 它的参数实际是「禁止默认 LLM 请求」，
-                        # 传 True 会直接把这一轮的主 LLM 请求掐掉（踩过这个坑）。
-                        event.is_at_or_wake_command = True
-                        event.is_wake = True
-                    except Exception:
-                        return
-                elif not self._should_interject(sess, event, text):
-                    self._note_ignored(sess)
-                    sess["prev_was_self"] = False
-                    return
-                else:
-                    event.set_extra("humanlike_initiative", True)
-                    sess["prev_was_self"] = False
-                    try:
-                        event.is_at_or_wake_command = True
-                        event.is_wake = True
-                    except Exception:
-                        return
 
-            if not (
-                event.get_extra("humanlike_initiative")
-                or event.get_extra("humanlike_followup")
-            ):
-                if self._should_silence(sess, text):
-                    logger.info(f"[humanlike] 选择不回：{text[:20]!r}")
-                    sess["last_silence_at"] = time.time()
-                    self._schedule_save()
-                    self._silence(event)
-                    return
-                sess["last_silence_at"] = 0.0
-
-            # 同一会话只让"最后一条"收到回复，像人一样回最后一句
-            self._gen[umo] = self._gen.get(umo, 0) + 1
-            gen = self._gen[umo]
-
-            # 这里只做"读消息"的停顿；"想"和"打字"的延迟挪到 on_llm_request，
-            # 这样连 angel_heart 这类主动触发的回复也受节奏层管辖。
-            read = random.uniform(
-                self._cf("timing.read_min", 0.6), self._cf("timing.read_max", 2.4)
-            )
-            await asyncio.sleep(read)
-            if self._gen.get(umo) != gen:
-                # 期间又来了新消息，这条作废
-                self._silence(event)
-                return
             self._schedule_save()
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"[humanlike] human_gate 出错: {e}", exc_info=True)
+            logger.error(f"[humanlike] note_incoming 出错: {e}", exc_info=True)
 
     # ───────────────────────── 钩子：提示词契约 ─────────────────────────
 
@@ -1179,25 +1052,72 @@ class HumanLikePlugin(Star):
             umo = str(event.unified_msg_origin or "")
             sess = self._session(umo)
 
-            # 每个事件只延迟一次：工具调用链的第二轮不要再睡一遍
-            if not event.get_extra("humanlike_delayed"):
-                event.set_extra("humanlike_delayed", True)
-                think_only = self._plan_think(sess, event.get_message_str() or "")
-                if self._cb("timing.typing_indicator", True):
-                    try:
-                        await event.send_typing()
-                    except Exception:
-                        pass
-                await asyncio.sleep(think_only)
+            # 历史里格式不合法的图片块会让 text-only 的模型整轮 400，
+            # 换成 [图片] 至少这一句还能正常说
+            fixed = self._scrub_history_images(req)
+            if fixed and umo not in self._img_warned:
+                # 历史不会被改写，所以每个会话只提醒一次，不然每条消息都要刷一行
+                self._img_warned.add(umo)
+                logger.info(
+                    f"[humanlike] 历史里有 {fixed} 处图片块格式不被模型接受，"
+                    f"已换成 [图片]：{umo}"
+                )
 
-            contract = self._build_contract(event, sess)
+            # 只发「正在输入」，不加延迟——节奏放在输出到手之后（_delivery_pause）
+            if self._cb("timing.typing_indicator", True):
+                try:
+                    await event.send_typing()
+                except Exception:
+                    pass
+
+            contract = self._build_contract(event, sess, req)
             req.system_prompt = (req.system_prompt or "") + "\n\n" + contract
+
+            # 只在重载后的第一条上打一次：确认 reply_to 这类工具真的挂上了，
+            # 不然提示词里那句「可以引用」就是空话
+            if not getattr(self, "_tools_logged", False):
+                self._tools_logged = True
+                try:
+                    names = list(req.func_tool.names()) if getattr(req, "func_tool", None) else []
+                except Exception:
+                    names = []
+                logger.info(
+                    f"[humanlike] 本轮可用工具 {len(names)} 个，"
+                    f"含 reply_to={'reply_to' in names}：{names[:10]}"
+                )
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"[humanlike] shape_request 出错: {e}", exc_info=True)
 
-    def _build_contract(self, event: AstrMessageEvent, sess: dict) -> str:
+    def _scrub_history_images(self, req: Any) -> int:
+        """把历史里格式不合法的图片块换成文字占位，返回改了几处。
+
+        AstrBot 只会处理「能解析」的 image_url；url 缺失、或者不是 data:/http
+        的那一块会被原样发给模型，text-only 的模型直接返回
+        `Unsupported image_url format`，整轮回复就没了，而且报错会被当成回复发出去。
+        """
+        if not self._cb("guards.scrub_images", True):
+            return 0
+        fixed = 0
+        for msg in getattr(req, "contexts", None) or []:
+            content = msg.get("content") if isinstance(msg, dict) else None
+            if not isinstance(content, list):
+                continue
+            for idx, part in enumerate(content):
+                if not isinstance(part, dict) or part.get("type") != "image_url":
+                    continue
+                box = part.get("image_url")
+                url = box.get("url") if isinstance(box, dict) else None
+                if isinstance(url, str) and url.startswith(_OK_IMAGE_PREFIX):
+                    continue
+                content[idx] = {"type": "text", "text": "[图片]"}
+                fixed += 1
+        return fixed
+
+    def _build_contract(
+        self, event: AstrMessageEvent, sess: dict, req: Any = None
+    ) -> str:
         hard_max = max(4, self._ci("style.max_chars", 20))  # 配置写坏了也不至于把回复剪成两个字
         # 回多长也跟着状态走：有劲的时候多说两个词，没劲、生气就压短
         emo = self._emo_now(sess)
@@ -1281,17 +1201,10 @@ class HumanLikePlugin(Star):
                 "当前情境：刚才有人在起哄你、或者指出你前后不一致。"
                 "这一句必须有反应（反驳/自嘲/装糊涂都行），不要平静地复述自己的偏好。"
             )
-        if event.get_extra("humanlike_initiative"):
-            parts.append(
-                "当前情境：这句不是别人叫你，是你看着群里聊得热闹，自己随口插一句。"
-                "别解释为什么开口，别客套，一句话说完。"
-            )
-        if event.get_extra("humanlike_followup"):
-            parts.append(
-                "当前情境：这条既没 @ 你也没引用你，但它是接着你上一条在说——"
-                "就像有人在你动态底下直接回了一句。别问「跟谁说」「@我干嘛」，也别复述他的话，"
-                "直接接住往下说，一句话。"
-            )
+        if not private:
+            tools_line = self._tools_line(req)
+            if tools_line:
+                parts.append(tools_line)
         if self._cb("style.plain", False):
             parts.append(
                 "补充：不要用省略号，不要用「～」，不要带「喵」，不要自称名字，"
@@ -1304,15 +1217,86 @@ class HumanLikePlugin(Star):
         parts.append("</human_chat_contract>")
         return "\n".join(parts)
 
+    # ───────────────────── 引用 / 艾特：把话对准人 ─────────────────────
+
+    @staticmethod
+    def _has_tool(req: Any, name: str) -> bool:
+        """看一眼这次的请求里到底有没有这个工具，没有就别在提示词里画饼。"""
+        toolset = getattr(req, "func_tool", None)
+        if toolset is None:
+            return False
+        try:
+            names = getattr(toolset, "names", None)
+            if callable(names):
+                names = names()
+            if isinstance(names, (list, tuple, set)):
+                return name in names
+        except Exception:
+            pass
+        try:
+            return any(
+                getattr(t, "name", "") == name for t in getattr(toolset, "tools", [])
+            )
+        except Exception:
+            return False
+
+    def _tools_line(self, req: Any) -> str:
+        """引导模型在合适的时候用引用 / 艾特。
+
+        QQ 工具箱把这两件事做成了「模型主动用才有」的能力：工具列表里有 reply_to，
+        正文里写 [At:QQ号] 会被转成真实艾特。但模型默认几乎不会主动用——除非提示词
+        明确写了「什么时候该用」。这里补的就是这一句：让对话有指向性，
+        又别变成每条消息都挂一个 @。
+        """
+        if not self._cb("tools.guide", True):
+            return ""
+        want_quote = self._cb("tools.reply_quote", True) and self._has_tool(req, "reply_to")
+        want_at = self._cb("tools.at_user", True)
+        if not (want_quote or want_at):
+            return ""
+
+        lines = ["想让这句话落到具体某个人头上，可以用 QQ 的引用 / 艾特——只在真需要的时候用："]
+        if want_quote:
+            lines.append(
+                "· 引用：调用 reply_to 工具（不传参数就是引用你正在回的这一条）。"
+                "你要接的不是最新那条、或者好几个人正同时在说话，就引用那一条，"
+                "让人一眼看出你在回谁。"
+            )
+        if want_at:
+            lines.append(
+                "· 艾特：在正文里写 [At:QQ号]，QQ 号就是上下文里的「ID: xxxx」「User ID: xxxx」。"
+                "想点名让某个人接话、或者把话丢回给他时用。"
+            )
+        lines.append(
+            "一条回复最多加一个，别每条都加，也别为了显得礼貌而加；"
+            "本来就在回他刚发的那条时，不需要。"
+        )
+        return "\n".join(lines)
+
     # ───────────────────────── 钩子：形态清洗 ─────────────────────────
 
     @filter.on_decorating_result()
     async def humanize_result(self, event: AstrMessageEvent) -> None:
         try:
-            if not self._enabled_for(event):
+            if not self._cb("enable", False):
                 return
             result = event.get_result()
             if result is None or not result.chain:
+                return
+
+            # ① 最先做：这条是不是上游报错？是就只写日志，绝不发出去。
+            #    报错正文里带着 provider 返回的 JSON，发进群里比不说话糟得多。
+            if self._cb("guards.hide_errors", True) and self._is_error_result(
+                event, result
+            ):
+                logger.error(
+                    "[humanlike] 拦下一条要发到群里的报错（只记录，不发送）："
+                    f"{result.get_plain_text()[:400]!r}"
+                )
+                event.clear_result()
+                return
+
+            if not self._enabled_for(event):
                 return
             if not result.is_model_result():
                 return
@@ -1351,9 +1335,6 @@ class HumanLikePlugin(Star):
                     logger.info(f"[humanlike] 被起哄，追加一条反应：{followups[-1]!r}")
 
             self._remember_self(sess, cleaned)
-            sess["last_reply_at"] = time.time()
-            # 下一条如果紧挨着来、又不是 @ 我，就当成"接着我这句往下说"
-            sess["prev_was_self"] = True
             self._schedule_save()
 
             # 保留引用 / @ 等非文本组件，只重建文本部分
@@ -1382,10 +1363,41 @@ class HumanLikePlugin(Star):
                 event.clear_result()
                 return
 
+            # 完整回复已经到手，这里才决定"这条隔多久发出去"——秒回，还是停一下。
+            pause = self._delivery_pause(sess)
+            if pause > 0:
+                await asyncio.sleep(pause)
+            sess["last_reply_at"] = time.time()
+            self._schedule_save()
+
             event.set_result(new_result)
-            logger.debug(f"[humanlike] {original!r} → {bubbles!r}")
+            logger.debug(f"[humanlike] {original!r} → {bubbles!r}（停顿 {pause:.1f}s）")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"[humanlike] humanize_result 出错: {e}", exc_info=True)
+
+    @staticmethod
+    def _is_error_result(event: AstrMessageEvent, result: Any) -> bool:
+        """这条结果是不是上游报错。
+
+        三种判据，任意命中就算：结果类型是 runner error、事件上挂了第三方 runner 的
+        错误标记、或者正文就是以 AstrBot 的报错模板开头的。
+        """
+        ctype = getattr(result, "result_content_type", None)
+        if "ERROR" in str(getattr(ctype, "name", "")).upper():
+            return True
+        try:
+            if event.get_extra("_third_party_runner_error"):
+                return True
+        except Exception:
+            pass
+        text = (result.get_plain_text() or "")[:600]
+        head = text.lstrip()
+        if any(head.startswith(p) for p in _ERROR_HEADS):
+            return True
+        # `LLM 响应错误: ... Error code: 400 - {'error': {...}}` 这类模板
+        return all(p in head for p in _ERROR_BODY)
 
     # ───────────────────────── 文本处理 ─────────────────────────
 
@@ -1406,6 +1418,16 @@ class HumanLikePlugin(Star):
         t = (text or "").strip()
         if not t:
             return ""
+
+        # [At:123456] 是留给 QQ 工具箱转真艾特的标记，先藏成占位符再清洗，
+        # 免得被 Markdown 清洗或者按字截断切开
+        stash: list[str] = []
+
+        def _stash_at(m: re.Match) -> str:
+            stash.append(m.group(0))
+            return f"@@AT{len(stash) - 1}@@"
+
+        t = _RE_AT_MARK.sub(_stash_at, t)
 
         if self._cb("style.strip_markdown", True):
             t = _RE_CODE.sub(r"\1", t)
@@ -1441,9 +1463,21 @@ class HumanLikePlugin(Star):
         if not self._cb("style.keep_ellipsis", True):
             t = t.replace("…", "").replace("...", "")
 
+        # 把藏起来的 [At:123456] 放回去。截断是按字算的，标记要是被切成半截，
+        # 发出去就是一条带方括号的怪话——所以先还原，再截断，最后修掉残口。
+        if stash:
+            t = _RE_AT_TOKEN.sub(
+                lambda m: stash[int(m.group(1))]
+                if int(m.group(1)) < len(stash)
+                else "",
+                t,
+            )
+
         hard_max = max(4, self._ci("style.max_chars", 20))
         if len(t) > hard_max:
             t = self._clip(t, hard_max)
+        if "[At:" in t:
+            t = _RE_AT_TRUNC.sub("", t).rstrip("…")
         return t.strip()
 
     @staticmethod
@@ -1463,11 +1497,20 @@ class HumanLikePlugin(Star):
 
     def _split_bubbles(self, text: str, sess: dict | None = None) -> list[str]:
         """偶尔把一句话拆成两条，模拟真人的连发。"""
+        # 开头的艾特标记不算正文：它必须和第一句话待在同一条消息里，
+        # 单独发出去就是一条「@某人」的空白消息
+        lead = ""
+        m = _RE_AT_LEAD.match(text)
+        if m:
+            lead, text = m.group(1), text[m.end() :]
+        if len(text) < 7:
+            return [lead + text]
+
         prob = self._cf("style.split_prob", 0.35)
         if sess is not None:
             prob *= 0.7 + 0.8 * self._emo_now(sess)["energy"]  # 有劲的时候更爱连发
-        if len(text) < 7 or prob <= 0 or random.random() >= prob:
-            return [text]
+        if prob <= 0 or random.random() >= prob:
+            return [lead + text]
         cut = -1
         for mark in ("，", ",", "、", " "):
             idx = text.find(mark)
@@ -1475,12 +1518,12 @@ class HumanLikePlugin(Star):
                 cut = idx
                 break
         if cut < 0:
-            return [text]
+            return [lead + text]
         head = text[:cut].strip()
         tail = text[cut + 1 :].strip()
         if len(head) < 2 or len(tail) < 2:
-            return [text]
-        return [head, tail]
+            return [lead + text]
+        return [lead + head, tail]
 
     # ─────────────────── 面板页面 API（pages/dashboard） ───────────────────
     #
@@ -1517,10 +1560,13 @@ class HumanLikePlugin(Star):
     @staticmethod
     def _clamp_known(path: str, value: float) -> float:
         key = path.rsplit(".", 1)[-1]
-        if key in ("max_chars", "target_chars", "max_chain", "cooldown",
-                   "ignored_cooldown", "spam_window", "decay_per_hour"):
-            floor = {"max_chars": 8.0, "target_chars": 3.0, "max_chain": 1.0}.get(key, 0.0)
+        if key in ("max_chars", "target_chars", "decay_per_hour"):
+            floor = {"max_chars": 8.0, "target_chars": 3.0}.get(key, 0.0)
             return max(floor, min(86400.0, value))
+        if key in ("settle_min", "settle_max", "long_pause_max", "max_delay"):
+            return max(0.0, min(120.0, value))
+        if key == "annoy_window":
+            return max(5.0, min(86400.0, value))
         if key == "react_scale":
             return max(0.0, min(3.0, value))
         if key.endswith(("_baseline", "_prob", "_step")) or key in (
