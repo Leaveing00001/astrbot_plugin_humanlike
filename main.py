@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+import os
 import random
 import re
 import time
@@ -30,7 +32,19 @@ from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, StarTools
 
+try:  # 插件 Web API：给面板页面用，老版本 AstrBot 没有这个模块
+    from astrbot.api.web import error_response, json_response
+    from astrbot.api.web import request as web_request
+
+    _WEB_API = True
+except Exception:  # pragma: no cover - 兼容老版本
+    error_response = json_response = None  # type: ignore[assignment]
+    web_request = None  # type: ignore[assignment]
+    _WEB_API = False
+
 PLUGIN_NAME = "astrbot_plugin_humanlike"
+_PLUGIN_VERSION = "0.7.0"
+PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
 
 # ────────────────────────── 文本清洗 ──────────────────────────
 
@@ -434,6 +448,13 @@ class HumanLikePlugin(Star):
         except Exception as e:
             logger.warning(f"[humanlike] 状态加载失败，使用空状态: {e}")
 
+        if _WEB_API:
+            try:
+                self._register_page_api()
+                logger.info("[humanlike] 面板 API 已挂上 /api/plug/.../page/*")
+            except Exception as e:
+                logger.warning(f"[humanlike] 面板 API 注册失败: {e}")
+
     async def terminate(self) -> None:
         await self._save_state(force=True)
 
@@ -683,10 +704,21 @@ class HumanLikePlugin(Star):
                 return label, tip, sharp
         return "", "", ""
 
-    def _emotion_line(self, sess: dict) -> str:
-        """把三条轴翻成一句"现在是什么状态"，顺带给出这句该怎么说的约束。"""
-        emo = self._emo_now(sess)
-        edge = self._cf("mood.edge", 0.3)
+    def _emotion_line(
+        self,
+        sess: dict | None = None,
+        *,
+        emo: dict | None = None,
+        edge: float | None = None,
+    ) -> str:
+        """把三条轴翻成一句"现在是什么状态"，顺带给出这句该怎么说的约束。
+
+        `emo` / `edge` 传了就按传的算——面板的预览要用它试没保存的基线值。
+        """
+        if emo is None:
+            emo = self._emo_now(sess if isinstance(sess, dict) else {})
+        if edge is None:
+            edge = self._cf("mood.edge", 0.3)
         labels: list[str] = []
         tips: list[str] = []
         for axis in self._emo_axes():
@@ -711,6 +743,17 @@ class HumanLikePlugin(Star):
         # 情绪低的时候永远跟着这条：可以话少，不能伤人
         low = emo.get("temper", 1.0) < 0.48 or emo.get("spirits", 1.0) < 0.3
         return head + body + ("话少可以，刻薄不行。" if low else "")
+
+    def _target_chars(self, emo: dict) -> int:
+        """这一句的目标长度：在 style.target_chars 上按三条轴偏移。"""
+        hard = max(4, self._ci("style.max_chars", 20))
+        base = {a["key"]: a["baseline"] for a in self._emo_axes()}
+        target = self._ci("style.target_chars", 10) + round(
+            (emo.get("energy", base["energy"]) - base["energy"]) * 6
+            + (emo.get("spirits", base["spirits"]) - base["spirits"]) * 2
+            + (emo.get("temper", base["temper"]) - base["temper"]) * 4
+        )
+        return max(3, min(hard, target))
 
     def _daypart(self) -> tuple[str, str]:
         hour = datetime.now().hour
@@ -1155,14 +1198,10 @@ class HumanLikePlugin(Star):
             logger.error(f"[humanlike] shape_request 出错: {e}", exc_info=True)
 
     def _build_contract(self, event: AstrMessageEvent, sess: dict) -> str:
-        hard_max = self._ci("style.max_chars", 20)
+        hard_max = max(4, self._ci("style.max_chars", 20))  # 配置写坏了也不至于把回复剪成两个字
         # 回多长也跟着状态走：有劲的时候多说两个词，没劲、生气就压短
         emo = self._emo_now(sess)
-        target = self._ci("style.target_chars", 10) + round(
-            (emo["energy"] - 0.42) * 6
-            + (emo["spirits"] - 0.56) * 2
-            + (emo["temper"] - 0.68) * 4
-        )
+        target = self._target_chars(emo)
         target = max(3, min(hard_max, target))
         daypart, time_tip = self._daypart()
 
@@ -1402,7 +1441,7 @@ class HumanLikePlugin(Star):
         if not self._cb("style.keep_ellipsis", True):
             t = t.replace("…", "").replace("...", "")
 
-        hard_max = self._ci("style.max_chars", 20)
+        hard_max = max(4, self._ci("style.max_chars", 20))
         if len(t) > hard_max:
             t = self._clip(t, hard_max)
         return t.strip()
@@ -1442,3 +1481,274 @@ class HumanLikePlugin(Star):
         if len(head) < 2 or len(tail) < 2:
             return [text]
         return [head, tail]
+
+    # ─────────────────── 面板页面 API（pages/dashboard） ───────────────────
+    #
+    # 页面本身是静态的 pages/dashboard/index.html，数据走这里：
+    #   GET  /api/plug/astrbot_plugin_humanlike/page/config   读配置 + 轴定义 + 会话
+    #   POST /api/plug/astrbot_plugin_humanlike/page/config   存配置（写文件并就地生效）
+    #   GET  /api/plug/astrbot_plugin_humanlike/page/preview  试一组轴值的文案
+    #   GET  /api/plug/astrbot_plugin_humanlike/page/state    各会话当前情绪
+    #   POST /api/plug/astrbot_plugin_humanlike/page/state    哄一下 / 回到基线
+    #
+    # 存配置不重启：写盘之后把 self.config 就地换掉，所有 _cf/_cb 读的就是新值。
+
+    def _register_page_api(self) -> None:
+        reg = self.context.register_web_api
+        p = PAGE_API_PREFIX
+        reg(f"{p}/config", self.api_get_config, ["GET"], "人味层：读取配置与会话")
+        reg(f"{p}/config", self.api_save_config, ["POST"], "人味层：保存配置")
+        reg(f"{p}/preview", self.api_preview, ["GET"], "人味层：预览情绪文案")
+        reg(f"{p}/state", self.api_get_state, ["GET"], "人味层：会话情绪状态")
+        reg(f"{p}/state", self.api_write_state, ["POST"], "人味层：哄一下 / 回到基线")
+
+    def _schema(self) -> dict:
+        try:
+            raw = (Path(__file__).parent / "_conf_schema.json").read_text(encoding="utf-8-sig")
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _config_path(self) -> Path:
+        """<data>/plugin_data/<plugin>/state.json → <data>/config/<plugin>_config.json"""
+        return self._state_path.parents[1] / "config" / f"{PLUGIN_NAME}_config.json"
+
+    @staticmethod
+    def _clamp_known(path: str, value: float) -> float:
+        key = path.rsplit(".", 1)[-1]
+        if key in ("max_chars", "target_chars", "max_chain", "cooldown",
+                   "ignored_cooldown", "spam_window", "decay_per_hour"):
+            floor = {"max_chars": 8.0, "target_chars": 3.0, "max_chain": 1.0}.get(key, 0.0)
+            return max(floor, min(86400.0, value))
+        if key == "react_scale":
+            return max(0.0, min(3.0, value))
+        if key.endswith(("_baseline", "_prob", "_step")) or key in (
+            "edge",
+            "temper_floor",
+            "prob",
+            "split_prob",
+        ):
+            return max(0.0, min(1.0, value))
+        return value
+
+    def _coerce_node(self, value: Any, spec: dict, path: str, problems: list[str]) -> Any:
+        kind = str(spec.get("type") or "").lower()
+        if kind == "object":
+            items = spec.get("items") or {}
+            if not isinstance(value, dict):
+                problems.append(f"{path} 应该是对象，已忽略")
+                return {}
+            out: dict[str, Any] = {}
+            for k, v in value.items():
+                sub = items.get(k)
+                if not isinstance(sub, dict):
+                    problems.append(f"忽略未知项 {path}.{k}")
+                    continue
+                out[k] = self._coerce_node(v, sub, f"{path}.{k}", problems)
+            return out
+        if kind == "bool":
+            return _coerce_bool(value, False)
+        if kind == "int":
+            return int(self._clamp_known(path, _coerce_int(value, 0)))
+        if kind == "float":
+            return round(self._clamp_known(path, _coerce_float(value, 0.0)), 4)
+        return "" if value is None else str(value)
+
+    def _merge_config(self, incoming: dict) -> tuple[dict, list[str]]:
+        """按 _conf_schema.json 校验一遍：未知键丢掉，类型不对的强转，已知范围夹紧。"""
+        schema = self._schema()
+        # self.config 是 AstrBotConfig（dict 子类，内部带锁），不能 deepcopy，
+        # 走一次 JSON 往返拿干净的纯 dict。
+        merged: dict = json.loads(json.dumps(self.config, ensure_ascii=False))
+        problems: list[str] = []
+        for key, value in incoming.items():
+            spec = schema.get(key)
+            if not isinstance(spec, dict):
+                problems.append(f"忽略未知项 {key}")
+                continue
+            merged[key] = self._coerce_node(value, spec, key, problems)
+        return merged, problems
+
+    def _write_config_file(self, cfg: dict) -> None:
+        path = self._config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = "\ufeff" + json.dumps(cfg, ensure_ascii=False, indent=2) + "\n"
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+
+    def _session_brief(self, limit: int = 40) -> list[dict]:
+        sessions = self._state.get("sessions") or {}
+        out: list[dict] = []
+        for umo, sess in sessions.items():
+            if not isinstance(sess, dict):
+                continue
+            try:
+                emo = self._emo_now(sess)
+            except Exception:
+                continue
+            labels: list[str] = []
+            for axis in self._emo_axes():
+                label, _, _ = self._emo_band(axis, emo.get(axis["key"], axis["baseline"]))
+                if label:
+                    labels.append(label)
+            kind = "private" if "FriendMessage" in str(umo) else "group"
+            out.append(
+                {
+                    "umo": umo,
+                    "kind": kind,
+                    "name": str(umo).rsplit(":", 1)[-1],
+                    "emo": {k: round(float(v), 3) for k, v in emo.items()},
+                    "labels": labels,
+                    "line": self._emotion_line(emo=emo),
+                    "last_reply_at": _coerce_float(sess.get("last_reply_at"), 0),
+                }
+            )
+        out.sort(key=lambda item: -(item.get("last_reply_at") or 0))
+        return out[:limit]
+
+    def _meta(self) -> dict:
+        baselines = {a["key"]: a["baseline"] for a in self._emo_axes()}
+        axes = []
+        for axis in _EMO_AXES:
+            axes.append(
+                {
+                    "key": axis["key"],
+                    "low": axis["low"],
+                    "high": axis["high"],
+                    "baseline": round(baselines.get(axis["key"], axis["baseline"]), 4),
+                    "bands": [
+                        [upper, label, tip, sharp] for upper, label, tip, sharp in axis["bands"]
+                    ],
+                }
+            )
+        return {
+            "version": _PLUGIN_VERSION,
+            "axes": axes,
+            "sharp_edge": 0.6,
+            "config_path": str(self._config_path()),
+        }
+
+    async def api_get_config(self):
+        try:
+            return json_response(
+                {
+                    "status": "ok",
+                    "data": {
+                        "config": self.config,
+                        "meta": self._meta(),
+                        "sessions": self._session_brief(),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[humanlike] 读取配置失败: {e}", exc_info=True)
+            return error_response(f"读取配置失败：{e}", status_code=500)
+
+    async def api_save_config(self):
+        try:
+            return await self._do_save_config()
+        except Exception as e:  # 兜底：别让面板只看到一句 Internal server error
+            logger.exception("[humanlike] 保存配置失败")
+            return error_response(f"保存失败：{e}", status_code=500)
+
+    async def _do_save_config(self):
+        try:
+            payload = await web_request.json(default={}) or {}
+        except Exception as e:
+            return error_response(f"请求体解析失败：{e}")
+        incoming = payload.get("config") if isinstance(payload, dict) else None
+        if not isinstance(incoming, dict):
+            return error_response("缺少 config")
+
+        merged, problems = self._merge_config(incoming)
+        self.config.clear()
+        self.config.update(merged)
+        try:
+            # AstrBotConfig 自己知道配置该写去哪，优先让它写（原子替换）
+            saver = getattr(self.config, "save_config", None)
+            if callable(saver):
+                saver()
+            else:
+                self._write_config_file(merged)
+        except Exception as e:
+            logger.error(f"[humanlike] 写配置失败: {e}", exc_info=True)
+            return error_response(f"写配置失败：{e}", status_code=500)
+
+        logger.info(f"[humanlike] 面板改了配置：{list(incoming.keys())}")
+        return json_response(
+            {"status": "ok", "data": {"config": merged, "warnings": problems}}
+        )
+
+    async def api_preview(self):
+        try:
+            q = web_request.query
+
+            def num(name: str, default: float) -> float:
+                try:
+                    return max(0.0, min(1.0, float(q.get(name, default))))
+                except (TypeError, ValueError):
+                    return default
+
+            emo = {
+                "energy": num("energy", self._cf("mood.energy_baseline", 0.42)),
+                "spirits": num("spirits", self._cf("mood.spirits_baseline", 0.56)),
+                "temper": num("temper", self._cf("mood.temper_baseline", 0.68)),
+            }
+            edge = num("edge", self._cf("mood.edge", 0.3))
+            labels = []
+            for axis in self._emo_axes():
+                label, _, _ = self._emo_band(axis, emo[axis["key"]])
+                if label:
+                    labels.append(label)
+            return json_response(
+                {
+                    "status": "ok",
+                    "data": {
+                        "line": self._emotion_line(emo=emo, edge=edge),
+                        "labels": labels,
+                        "target": self._target_chars(emo),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[humanlike] 预览失败: {e}", exc_info=True)
+            return error_response(f"预览失败：{e}", status_code=500)
+
+    async def api_get_state(self):
+        try:
+            return json_response(
+                {"status": "ok", "data": {"sessions": self._session_brief(limit=60)}}
+            )
+        except Exception as e:
+            logger.error(f"[humanlike] 读状态失败: {e}", exc_info=True)
+            return error_response(f"读状态失败：{e}", status_code=500)
+
+    async def api_write_state(self):
+        try:
+            payload = await web_request.json(default={}) or {}
+        except Exception as e:
+            return error_response(f"请求体解析失败：{e}")
+        umo = str((payload or {}).get("umo") or "")
+        action = str((payload or {}).get("action") or "")
+        sess = (self._state.get("sessions") or {}).get(umo)
+        if not isinstance(sess, dict):
+            return error_response("没有这个会话")
+
+        if action == "reset":
+            self._emo_now(sess)  # 先把衰减结掉
+            sess.pop("emo", None)
+            sess.pop("emo_hold", None)
+            sess["emo_ts"] = time.time()
+        elif action == "soothe":
+            self._bump_emo(sess, {"temper": 0.45, "spirits": 0.12}, 3600)
+        elif action == "cheer":
+            self._bump_emo(sess, {"energy": 0.35, "spirits": 0.25}, 3600)
+        else:
+            return error_response("未知操作")
+
+        await self._save_state(force=True)
+        emo = self._emo_now(sess)
+        logger.info(f"[humanlike] 面板手动调整情绪 {umo} → {action}: {emo}")
+        return json_response({"status": "ok", "data": {"emo": emo}})

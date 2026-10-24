@@ -17,7 +17,7 @@ desc: |-
   而不是每句话都礼貌完整。人格本身仍由 AstrBot 的叶铭（认主）提供，本插件只改"怎么说"。
 
   默认关闭，必须在配置里把群号填进 groups 才会生效。
-version: 0.6.1
+version: 0.7.0
 author: DeepSeek Harness
 repo: https://github.com/Leaveing00001/astrbot_plugin_humanlike
 astrbot_version: ">=4.10.0"

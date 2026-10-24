@@ -284,7 +284,7 @@ I 轮达标的直接原因是：丁开始给出带信息量的回答
 
 J 轮的五条破绽里，除标点外四条都做成了后处理保险（见第一节的表）。上线后实测，
 J 轮那三句——「别点太辣的就行 → 别放太多辣就行」「我开车就不喝了」「我六点半到，正好先占个位」——
-都被切开或改写（`tests/test_offline.py` 103 项覆盖）。
+都被切开或改写（`test_offline.py` 45 项覆盖）。
 
 但 K、L 两轮的判词显示：**这四条真的不再是判官的判断依据了，bot 却还是被认出来。**
 
@@ -478,12 +478,44 @@ M 轮的结论有个致命弱点：**人类台词还是我写的**。这一轮�
 
 ```
 astrbot_plugin_humanlike/
-├── main.py                  # 五层机制，1444 行
+├── main.py                  # 五层机制 + 面板 API，1800 行上下
 ├── metadata.yaml
 ├── _conf_schema.json
-├── tests/test_offline.py    # 103 项离线自测（不需要连 QQ）
+├── pages/dashboard/         # 面板页面：index.html / style.css / app.js
+├── .astrbot-plugin/i18n/    # 面板里的显示名
+├── tests/test_offline.py    # 离线自测
 └── README.md
 ```
 
 状态文件：`~/.astrbot/data/plugin_data/astrbot_plugin_humanlike/state.json`
 （每会话的 `emo` 三条轴 + `emo_hold` 按住时间 / 最近说过的话 / 被 @ 的时间戳）
+
+---
+
+## 八、WebUI（面板页面）
+
+AstrBot 面板 → 插件 → **人味层** → 页面，打开的就是 `pages/dashboard/`。
+改完点「保存并生效」，插件就地更新，**不用重启 AstrBot**。
+
+| 页 | 干什么 |
+|---|---|
+| 生效范围 | 总开关、群白名单（标签式增删）、私聊开关与白名单 |
+| 提示词 | `prompt_extra` 编辑器，常用句子一键插入（优先级高于自带条款） |
+| 情绪 | 三条轴基线（区间条 + 实时文案预览）、锋利度、脾气下限、回落速度、被推的力度 |
+| 节奏与沉默 | 长度、拆条概率、秒回/长停顿、不回消息的概率与冷却 |
+| 实时状态 | 每个会话此刻的三条轴，附「哄一下 / 回到基线」 |
+| 关于 | 版本、仓库、许可 |
+
+![情绪页](docs/panel-mood.png)
+
+![生效范围](docs/panel-scope.png)
+
+### 它是怎么接上去的
+
+- 页面是纯静态的 `pages/<page_name>/index.html`，AstrBot 会自动注入 bridge SDK 并给 `style.css` / `app.js` 改写带 asset_token 的地址；
+- 数据走插件自己注册的 Web API：`/api/plug/astrbot_plugin_humanlike/page/{config,preview,state}`，页面用 `AstrBotPluginPage.apiGet/apiPost` 调，鉴权由面板的 iframe 代劳；
+- 保存时后端按 `_conf_schema.json` 逐键校验：类型强转、已知范围夹紧（比如 `max_chars` 不会低于 8）、未知键忽略并回一条 warning；
+- 写盘优先用 `AstrBotConfig.save_config()`（原子替换），写在 `data/config/astrbot_plugin_humanlike_config.json`——和面板原来的配置页是同一个文件；
+- 「实时状态」读的是 `state.json` 里各会话的 `emo`，每 15 秒刷一次。
+
+![实时状态（深色）](docs/panel-state-dark.png)

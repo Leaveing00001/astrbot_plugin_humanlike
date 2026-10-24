@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>人味层 · 让叶铭像个人</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30">
+          <path d="M8 13c0-4 3.6-7 8-7s8 3 8 7v9a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z" fill="currentColor" opacity=".18"/>
+          <path d="M9.5 9.5 8 4l5 2.4M22.5 9.5 24 4l-5 2.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <circle cx="12.6" cy="15.4" r="1.5" fill="currentColor"/>
+          <circle cx="19.4" cy="15.4" r="1.5" fill="currentColor"/>
+          <path d="M13.4 19.6c.9.9 1.7 1.3 2.6 1.3s1.7-.4 2.6-1.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="brand-txt">
+        <b>人味层</b>
+        <span>humanlike · v<span data-bind="version">–</span></span>
+      </div>
+    </div>
+
+    <nav id="nav">
+      <button class="nav-item is-active" data-tab="scope">
+        <i class="ico" data-ico="scope"></i><span>生效范围</span>
+      </button>
+      <button class="nav-item" data-tab="prompt">
+        <i class="ico" data-ico="prompt"></i><span>提示词</span>
+      </button>
+      <button class="nav-item" data-tab="mood">
+        <i class="ico" data-ico="mood"></i><span>情绪</span>
+      </button>
+      <button class="nav-item" data-tab="rhythm">
+        <i class="ico" data-ico="rhythm"></i><span>节奏与沉默</span>
+      </button>
+      <button class="nav-item" data-tab="state">
+        <i class="ico" data-ico="state"></i><span>实时状态</span>
+      </button>
+      <button class="nav-item" data-tab="about">
+        <i class="ico" data-ico="about"></i><span>关于</span>
+      </button>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="rail-hint" id="railHint">正在连接面板…</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="titles">
+        <h1 id="pageTitle">生效范围</h1>
+        <p id="pageSub">决定叶铭在哪些群、哪些私聊里“有人的样子”。</p>
+      </div>
+      <div class="pills" id="statusPills"></div>
+    </header>
+
+    <div class="scroll">
+
+      <!-- ───────── 生效范围 ───────── -->
+      <section class="tab is-active" data-panel="scope">
+        <div class="card">
+          <div class="card-head">
+            <div><h2>总开关</h2><p>关掉后所有改动都不生效，叶铭回到“有问必答”的样子。</p></div>
+            <label class="switch"><input type="checkbox" data-path="enable"><span class="track"></span></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div><h2>群聊白名单</h2><p>留空 = 所有群都生效（不建议）。支持前缀匹配：填 <code>888888</code> 会命中 <code>888888901</code>。</p></div>
+            <span class="counter" id="groupCount">0 个群</span>
+          </div>
+          <div class="chips" data-chips="groups" data-placeholder="输入群号，回车添加"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div><h2>私聊</h2><p>私聊里对方本来就是冲着你说的，所以不静默、不插话，只做节奏和形态。</p></div>
+            <label class="switch"><input type="checkbox" data-path="private_enable"><span class="track"></span></label>
+          </div>
+          <div class="sub-block">
+            <div class="sub-title">只对这些 QQ 生效<span class="muted">（留空 = 所有私聊）</span></div>
+            <div class="chips" data-chips="private_users" data-placeholder="输入 QQ 号，回车添加"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div><h2>它在这几处怎么表现</h2>
+              <p>白名单决定“在哪”，剩下几页决定“怎么说话”。</p></div>
+          </div>
+          <ul class="bullets">
+            <li><b>群里</b>：只回叫到你（@、唤醒词、或者接着你上一条说）的那一句，别人的对话不插嘴。</li>
+            <li><b>私聊</b>：对方就是在跟你说，所以不静默、不判插话，只做节奏和形态。</li>
+            <li><b>移出白名单</b>：立刻退回普通模式——还是叶铭的人格，只是不再有人的节奏和情绪。</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ───────── 提示词 ───────── -->
+      <section class="tab" data-panel="prompt">
+        <div class="card">
+          <div class="card-head">
+            <div><h2>追加提示词</h2><p>原样拼在每次回复的提示词最后，<b>优先级高于插件自带的所有条款</b>。改语气、加禁忌都写这里。</p></div>
+            <span class="counter" id="extraCount">0 字</span>
+          </div>
+          <textarea data-path="prompt_extra" rows="5"
+            placeholder="例：不管什么状态，都不许用反问句怼人。"></textarea>
+          <div class="examples">
+            <span class="ex-label">一键插入</span>
+            <button class="chip-btn" data-example="不管什么状态，都不许用反问句怼人；对方认真说话时，哪怕只回几个字，也要让他觉得不是在敷衍。">别用反问句怼人</button>
+            <button class="chip-btn" data-example="看对方真的难受了，就把话放软一点，别继续端着。">对方难受就软下来</button>
+            <button class="chip-btn" data-example="说话别带刺，最多短一点。">别带刺</button>
+            <button class="chip-btn" data-example="刚才好像把话说急了。接下来几句软一点，别怼人。">临时哄一哄</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div><h2>这道口子的代价</h2>
+              <p>追加提示词会跟着每一轮请求发送，写太长会稀释前面的规则。一到两句最好。</p></div>
+          </div>
+          <div class="note">
+            情绪低的时候，插件自己还会补一句「话少可以，刻薄不行」。想彻底关掉“生气”这个档，
+            去 <a href="#" data-goto="mood">情绪</a> 页把「脾气下限」拉到 0.45 以上。
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────── 情绪 ───────── -->
+      <section class="tab" data-panel="mood">
+        <div class="card">
+          <div class="card-head">
+            <div><h2>三条轴</h2><p>往右拖 = 更靠右端。基线是“什么都没发生时”的落点，被夸被骂都会往上往下推，推完慢慢淡回来。</p></div>
+          </div>
+
+          <div class="axis" data-axis="energy">
+            <div class="axis-head">
+              <span class="axis-name">活力</span>
+              <span class="axis-right"><b data-val>0.42</b><span class="axis-band" data-band>–</span></span>
+            </div>
+            <div class="gauge" data-gauge>
+              <div class="gauge-seg"></div><div class="gauge-seg"></div><div class="gauge-seg"></div>
+              <div class="gauge-seg"></div><div class="gauge-seg"></div>
+              <div class="gauge-mark"></div>
+            </div>
+            <div class="axis-foot">
+              <span class="pole">懒散</span>
+              <input type="range" min="0" max="1" step="0.01" data-path="mood.energy_baseline" data-axis-range>
+              <span class="pole">活力</span>
+            </div>
+          </div>
+
+          <div class="axis" data-axis="spirits">
+            <div class="axis-head">
+              <span class="axis-name">情绪</span>
+              <span class="axis-right"><b data-val>0.56</b><span class="axis-band" data-band>–</span></span>
+            </div>
+            <div class="gauge" data-gauge>
+              <div class="gauge-seg"></div><div class="gauge-seg"></div><div class="gauge-seg"></div>
+              <div class="gauge-seg"></div><div class="gauge-seg"></div>
+              <div class="gauge-mark"></div>
+            </div>
+            <div class="axis-foot">
+              <span class="pole">伤心</span>
+              <input type="range" min="0" max="1" step="0.01" data-path="mood.spirits_baseline" data-axis-range>
+              <span class="pole">开心</span>
+            </div>
+          </div>
+
+          <div class="axis" data-axis="temper">
+            <div class="axis-head">
+              <span class="axis-name">脾气</span>
+              <span class="axis-right"><b data-val>0.68</b><span class="axis-band" data-band>–</span></span>
+            </div>
+            <div class="gauge" data-gauge>
+              <div class="gauge-seg"></div><div class="gauge-seg"></div><div class="gauge-seg"></div>
+              <div class="gauge-seg"></div><div class="gauge-seg"></div>
+              <div class="gauge-mark"></div>
+            </div>
+            <div class="axis-foot">
+              <span class="pole">生气</span>
+              <input type="range" min="0" max="1" step="0.01" data-path="mood.temper_baseline" data-axis-range>
+              <span class="pole">温柔</span>
+            </div>
+          </div>
+
+          <div class="preview">
+            <div class="preview-head">
+              <span>按上面的基线，模型会读到这句</span>
+              <span class="preview-target">目标 <b id="previewTarget">10</b> 字</span>
+            </div>
+            <p class="preview-line" id="previewLine">现在状态：跟平时一样，不特别高兴也不特别烦。就按平时的语气说。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div><h2>强度与护栏</h2><p>这几个决定“情绪有多容易被推、推得多难听”。</p></div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>语气锋利度</b><p>默认 0.3 只让话变少。到 0.6 以上才会启用「可以顶一句」那版文案——不建议。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="1" step="0.05" data-path="mood.edge">
+              <output data-out="mood.edge">0.30</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>脾气下限</b><p>脾气再低也不跌破这里。拉到 0.45 以上，就再也进不了“在生气”。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="1" step="0.05" data-path="mood.temper_floor">
+              <output data-out="mood.temper_floor">0.15</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>回落速度</b><p>每小时拉回多少差距。1.0 ≈ 一小时淡掉 63%。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0.1" max="3" step="0.1" data-path="mood.decay_per_hour">
+              <output data-out="mood.decay_per_hour">1.0</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>被话推的力度</b><p>整体倍率。嫌反应太淡调大，嫌太跳调小，0 = 只留基线和回落。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="2" step="0.1" data-path="mood.react_scale">
+              <output data-out="mood.react_scale">1.0</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>连续 @ 掉多少脾气</b><p>120 秒内被 @ 三次就扣这么多。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="0.5" step="0.01" data-path="mood.annoy_step">
+              <output data-out="mood.annoy_step">0.15</output>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────── 节奏与沉默 ───────── -->
+      <section class="tab" data-panel="rhythm">
+        <div class="card">
+          <div class="card-head"><div><h2>说话形态</h2><p>管长度和“偶尔拆成两条发”。</p></div></div>
+
+          <div class="row">
+            <div class="row-txt"><b>单条硬上限</b><p>超过就截断，单位字。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="8" max="60" step="1" data-path="style.max_chars">
+              <output data-out="style.max_chars">20</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>理想长度</b><p>实际会在 3 ~ 这个值附近浮动，情绪还会再改它。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="3" max="40" step="1" data-path="style.target_chars">
+              <output data-out="style.target_chars">10</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>拆成两条的概率</b><p>0.4 ≈ 四成的时候会像真人一样连发。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="1" step="0.05" data-path="style.split_prob">
+              <output data-out="style.split_prob">0.40</output>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div><h2>提速与停顿</h2><p>真人不是匀速打字机。</p></div></div>
+
+          <div class="row">
+            <div class="row-txt"><b>秒回的概率</b><p>正好在看手机，回得飞快。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="1" step="0.05" data-path="timing.fast_reply_prob">
+              <output data-out="timing.fast_reply_prob">0.15</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>长停顿的概率</b><p>人不在手机旁，隔很久才回。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="1" step="0.05" data-path="timing.long_pause_prob">
+              <output data-out="timing.long_pause_prob">0.18</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>深夜变慢</b><p>23:30–6:00 整体拖慢，也更不想说话。</p></div>
+            <label class="switch"><input type="checkbox" data-path="timing.night_slowdown"><span class="track"></span></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div><h2>不回消息</h2><p>最像人的一层，也是最容易让人觉得被冷落的一层。</p></div></div>
+
+          <div class="row">
+            <div class="row-txt"><b>被叫到也不回的概率</b><p>直接提问时强制必回，不受这个影响。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="0.5" step="0.01" data-path="silence.prob">
+              <output data-out="silence.prob">0.12</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>两次之间的冷却</b><p>刚无视过一次，这段时间内必须接话。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="3600" step="60" data-path="silence.cooldown">
+              <output data-out="silence.cooldown">900</output>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div><h2>主动与接话</h2><p>没被叫到也接一句。</p></div></div>
+
+          <div class="row">
+            <div class="row-txt"><b>主动插话的概率</b><p>心情有劲的时候才会真的插。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="0.5" step="0.01" data-path="initiative.prob">
+              <output data-out="initiative.prob">0.06</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>接话头的概率</b><p>别人没 @ 也没引用、直接挨着你上一条说。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="1" step="0.05" data-path="followup.prob">
+              <output data-out="followup.prob">0.50</output>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>连击上限</b><p>连续接几轮就停，避免变成“谁说话都答”。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="1" max="6" step="1" data-path="followup.max_chain">
+              <output data-out="followup.max_chain">2</output>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────── 实时状态 ───────── -->
+      <section class="tab" data-panel="state">
+        <div class="card">
+          <div class="card-head">
+            <div><h2>现在各处的状态</h2><p>每 15 秒刷新。心情低的地方，可以一键哄一下。</p></div>
+            <div class="head-actions">
+              <span class="counter" id="stateStamp">–</span>
+              <button class="ghost-btn" id="refreshState">刷新</button>
+            </div>
+          </div>
+          <div class="sessions" id="sessions">
+            <div class="empty">还没有会话记录。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────── 关于 ───────── -->
+      <section class="tab" data-panel="about">
+        <div class="card">
+          <div class="card-head"><div><h2>人味层 · astrbot_plugin_humanlike</h2>
+            <p>把“有问必答的客服”改造成群里那个会慢半拍、会被问烦、偶尔不回的人。人格仍然由 AstrBot 的叶铭提供。</p></div></div>
+          <dl class="kv">
+            <div><dt>版本</dt><dd data-bind="version">–</dd></div>
+            <div><dt>仓库</dt><dd><a href="https://github.com/Leaveing00001/astrbot_plugin_humanlike" target="_blank" rel="noreferrer">Leaveing00001/astrbot_plugin_humanlike</a></dd></div>
+            <div><dt>离线自测</dt><dd>103 项（不需要连 QQ）</dd></div>
+            <div><dt>许可</dt><dd>MIT</dd></div>
+          </dl>
+          <div class="note">
+            改了配置直接点下面的「保存并生效」，插件会就地更新，不用重启 AstrBot。
+            保存写的是 <code>data/config/astrbot_plugin_humanlike_config.json</code>，面板原来的配置页改的也是这个文件。
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <footer class="savebar" id="savebar">
+      <div class="save-hint" id="saveHint">已保存</div>
+      <div class="save-actions">
+        <button class="ghost-btn" id="discardBtn" disabled>放弃修改</button>
+        <button class="primary-btn" id="saveBtn" disabled>保存并生效</button>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
