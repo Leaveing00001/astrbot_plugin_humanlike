@@ -30,7 +30,7 @@
 |---|---|---|
 | 记账层 | `note_incoming` | 把人话记下来（反露馅保险的判据），按内容推情绪。不裁决、不拦截、不关 LLM |
 | 提示层 | `on_llm_request` | 注入硬性风格契约；群里额外引导它用引用 / 艾特；顺手修掉历史里模型不认的图片块 |
-| 形态层 | `on_decorating_result` | 清洗 Markdown / 括号动作 / 客套腔；压到 ≤20 字；偶尔拆成两条 |
+| 形态层 | `on_decorating_result` | 清洗 Markdown / 括号动作 / 客套腔；压到 ≤20 字；偶尔拆成两条（拆分点的逗号留在前半句） |
 | 反露馅层 | 同上 | 四道结构检查：立场复读 / 属性错配 / 事实冲突 / 被起哄必须有反应 |
 | 节奏层 | 同上 | **完整回复到手之后**才决定：秒回，还是停一下再发（停顿不占模型生成时间） |
 | 兜底层 | 同上 | LLM 报错只写日志、绝不发进群；历史里的坏图片块换成 `[图片]` |
@@ -530,7 +530,7 @@ astrbot_plugin_humanlike/
 ├── pages/dashboard/         # 面板页面：index.html / style.css / app.js
 ├── .astrbot-plugin/i18n/    # 面板里的显示名
 ├── docs/                    # README 里的截图
-├── tests/test_offline.py    # 离线自测（129 项，不需要连 QQ）
+├── tests/test_offline.py    # 离线自测（131 项，不需要连 QQ）
 └── README.md
 ```
 

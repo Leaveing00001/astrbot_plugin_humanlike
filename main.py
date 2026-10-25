@@ -1554,7 +1554,9 @@ class HumanLikePlugin(Star):
                 break
         if cut < 0:
             return [lead + text]
-        head = text[:cut].strip()
+        # 拆分点上的标点要留在前半句：以前是 head = text[:cut]，等于每拆一次就吃掉一个逗号，
+        # 长句子一多就会发现「怎么全是没标点的短句」。真人连发时也是「今天天气不错，」「我们去吃饭吧。」
+        head = text[: cut + 1].strip()
         tail = text[cut + 1 :].strip()
         if len(head) < 2 or len(tail) < 2:
             return [lead + text]

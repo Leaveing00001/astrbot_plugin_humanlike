@@ -115,6 +115,8 @@ check("问号保留", s6.endswith("？"), repr(s6))
 plugin.config["style"]["split_prob"] = 1.0
 bubbles = plugin._split_bubbles("周末啊，叶铭大概率不动")
 check("可拆成两条", len(bubbles) == 2, repr(bubbles))
+check("拆分点上的逗号留在前半句", bubbles[0].endswith("，"), repr(bubbles[0]))
+check("拆条不会吃掉后半句的标点", bubbles[1].endswith("动"), repr(bubbles[1]))
 
 plugin.config["style"]["split_prob"] = 0.0
 bubbles0 = plugin._split_bubbles("周末啊，叶铭大概率不动")
