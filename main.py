@@ -49,7 +49,7 @@ except Exception:  # pragma: no cover - 兼容老版本
     _WEB_API = False
 
 PLUGIN_NAME = "astrbot_plugin_humanlike"
-_PLUGIN_VERSION = "0.9.0"
+_PLUGIN_VERSION = "0.9.1"
 PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
 
 # ────────────────────────── 文本清洗 ──────────────────────────
@@ -76,6 +76,12 @@ _RE_AT_MARK = re.compile(r"\[At:(\d{4,12})\]")
 _RE_AT_TOKEN = re.compile(r"@@AT(\d{1,3})@@")
 _RE_AT_LEAD = re.compile(r"^(\[At:\d{4,12}\][\s\u200b]*)")
 _RE_AT_TRUNC = re.compile(r"\[At:?[^\]]*$")
+
+#: 口癖替换：这些字符算分句边界
+_CLAUSE_BREAKS = "，。！？…～、,.!?~\n "
+
+#: 句首口癖（「喵，我才不笨」）换成这几个感叹词，比「呀」自然
+_TIC_LEAD = ("唔", "哦", "诶", "嗯", "啊")
 
 # 上游出错时 AstrBot 会把错误文本当回复发出来。下面这些开头一出现，
 # 就说明这条不是这个角色说的话，而是给运维看的——拦下来写日志，别让群友看见。
@@ -1445,8 +1451,10 @@ class HumanLikePlugin(Star):
     def _apply_tics(self, text: str) -> str:
         """把口癖（默认「喵」）按概率换成随机语气词。
 
-        人设里写着"带猫的口癖"，模型就会每句都挂一个，听久了像卡带。
-        这里只做表面替换：同长度、不动句子结构，概率由 style.tic_prob 控制。
+        只在两种位置换，别的一律不动：
+        - **句末/分句末**（后面是标点或没有了）→ 一般语气词（啊/吧/呢…）；
+        - **句首**（在开头或上一个标点之后，紧跟「，。！？…」）→ 感叹词（唔/哦/诶…）。
+        句中的不换：实测盲替换会把「随便喵一句」改成「随便呀一句」，病句。
         """
         if not text or self._cb("style.plain", False):
             return text
@@ -1459,20 +1467,35 @@ class HumanLikePlugin(Star):
         pool = self._split_ids(self._c("style.tic_to", ""))
         if not pool:
             return text
+        lead_pool = list(_TIC_LEAD)
 
         last = {"pick": ""}
 
-        def _pick() -> str:
-            cand = [p for p in pool if p != last["pick"]] or pool
+        def _pick(options: list[str]) -> str:
+            cand = [o for o in options if o != last["pick"]] or options
             chosen = random.choice(cand)
             last["pick"] = chosen
             return chosen
 
-        chunks = text.split(tic)
-        out = [chunks[0]]
-        for chunk in chunks[1:]:
-            out.append(_pick() if random.random() < prob else tic)
-            out.append(chunk)
+        out: list[str] = []
+        i = 0
+        while True:
+            j = text.find(tic, i)
+            if j < 0:
+                out.append(text[i:])
+                break
+            out.append(text[i:j])
+            prev = text[j - 1] if j > 0 else ""
+            nxt = text[j + len(tic)] if j + len(tic) < len(text) else ""
+            at_clause_start = (not prev) or prev in _CLAUSE_BREAKS
+            at_clause_end = (not nxt) or nxt in _CLAUSE_BREAKS
+            if at_clause_start and nxt and nxt in _CLAUSE_BREAKS and random.random() < prob:
+                out.append(_pick(lead_pool))
+            elif at_clause_end and random.random() < prob:
+                out.append(_pick(pool))
+            else:
+                out.append(tic)
+            i = j + len(tic)
         return "".join(out)
 
     def _sanitize(self, text: str, self_names: tuple[str, ...] = ()) -> str:

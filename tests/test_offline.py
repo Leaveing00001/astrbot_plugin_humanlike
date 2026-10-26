@@ -753,6 +753,20 @@ plugin.config["style"]["plain"] = False
 
 plugin.config["style"]["tic_from"] = ""
 check("没配口癖就不替换", plugin._apply_tics("在的喵") == "在的喵")
+
+plugin.config["style"].update({"tic_from": "喵", "tic_prob": 1.0})
+mid = plugin._apply_tics("随便喵一句")
+check("句中口癖不替换（避免病句）", mid == "随便喵一句", repr(mid))
+
+lead = plugin._apply_tics("喵，我才不笨")
+check("句首口癖换成感叹词", lead[0] in "唔哦诶嗯啊" and "喵" not in lead, repr(lead))
+
+tail = plugin._apply_tics("我才不笨喵")
+check("句末口癖换成语气词", "喵" not in tail and tail[-1] in "啊吧呢嘛哦呀啦", repr(tail))
+
+both = plugin._apply_tics("喵，我才不笨喵")
+check("一句里两处都换", "喵" not in both, repr(both))
+
 plugin.config["style"].update({"tic_from": "喵", "tic_prob": 0.0})
 
 # ── 14. 整段契约模板可改 ────────────────────────────────
