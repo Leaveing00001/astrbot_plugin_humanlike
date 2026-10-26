@@ -719,7 +719,7 @@ bad = FakeImgReq([
 ])
 n_bad = plugin._scrub_history_images(bad)
 check("坏图片块被换成 [图片]",
-      n_bad == 1 and bad.contexts[0]["content"][1] == {"type": "text", "text": "[图片（看不到内容）]"},
+      n_bad == 1 and bad.contexts[0]["content"][1] == {"type": "text", "text": "[图片]"},
       str(bad.contexts[0]["content"]))
 
 good = FakeImgReq([{"role": "user", "content": [

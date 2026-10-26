@@ -49,7 +49,7 @@ except Exception:  # pragma: no cover - 兼容老版本
     _WEB_API = False
 
 PLUGIN_NAME = "astrbot_plugin_humanlike"
-_PLUGIN_VERSION = "0.9.2"
+_PLUGIN_VERSION = "0.9.3"
 PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
 
 # ────────────────────────── 文本清洗 ──────────────────────────
@@ -470,7 +470,6 @@ _CONTRACT_TEMPLATE = """<human_chat_contract>
 10. 有人起哄你、或者指出你前后不一致时必须有反应：反驳、自嘲、装糊涂都行，不许平静地重复一遍自己的偏好。
 11. 状态不好只表现为话少，不表现为刻薄：不阴阳怪气、不嘲讽、不拿对方的糗事或难处说事、不骂人。
 12. 回答别太干：哪怕只有两个字，也带个语气词或一句态度，别只甩一个光秃秃的词。
-13. 别人只发了图、没写字时，你看不见图里是什么：不许描述画面，回一句「？」「啥图」「看不见」这类反应就行。
 {emotion}
 {time}
 {recent}
@@ -1147,7 +1146,7 @@ class HumanLikePlugin(Star):
                 url = box.get("url") if isinstance(box, dict) else None
                 if isinstance(url, str) and url.startswith(_OK_IMAGE_PREFIX):
                     continue
-                content[idx] = {"type": "text", "text": "[图片（看不到内容）]"}
+                content[idx] = {"type": "text", "text": "[图片]"}
                 fixed += 1
         return fixed
 
