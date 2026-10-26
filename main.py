@@ -49,7 +49,7 @@ except Exception:  # pragma: no cover - 兼容老版本
     _WEB_API = False
 
 PLUGIN_NAME = "astrbot_plugin_humanlike"
-_PLUGIN_VERSION = "0.8.0"
+_PLUGIN_VERSION = "0.9.0"
 PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
 
 # ────────────────────────── 文本清洗 ──────────────────────────
@@ -443,6 +443,34 @@ def _coerce_bool(value: Any, default: bool) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return default
+
+
+#: 默认的聊天契约模板。配置 prompt_template 可以整段覆盖它。
+#: 占位符：{opening} {scope} {fact} {target} {max} {emotion} {time} {recent}
+#:         {situation} {facts} {tools} {where}
+_CONTRACT_TEMPLATE = """<human_chat_contract>
+{opening}
+长度：这次只回一句，3~{target} 字，任何情况都不超过 {max} 字。
+必须做到：
+1. {scope}
+2. 先答问题：问去不去就答去/不去，问几点就答几点；答完再决定要不要带态度。
+3. 不解释、不列举、不总结、不加「还有什么可以帮你」；不用 Markdown、不用括号写动作或心理、不用引号包整句。
+4. 可以敷衍、可以拒绝，但别用空话顶替回答（「知道」「明天说」不算答案）；真不想说自己的私事就把话题岔开。
+5. 被问「你是不是机器人/是不是 AI」：别用「你猜」；反问、一句「？」或者岔开，同一个说法不连用两次。
+6. 不以「晚安」「先这样」收尾（除非对方先说要睡）；不复述、不总结、不点评对话本身（不说「你问过」「又问一遍」）。
+7. 同一立场只说一次；已经翻篇的话题不回头补答；只回最新的一条消息。
+8. {fact}
+9. 你只说自己真做过的事。别人说「我开车」「我加班」那是别人的情况，不要接成自己也有。
+10. 有人起哄你、或者指出你前后不一致时必须有反应：反驳、自嘲、装糊涂都行，不许平静地重复一遍自己的偏好。
+11. 状态不好只表现为话少，不表现为刻薄：不阴阳怪气、不嘲讽、不拿对方的糗事或难处说事、不骂人。
+12. 回答别太干：哪怕只有两个字，也带个语气词或一句态度，别只甩一个光秃秃的词。
+{emotion}
+{time}
+{recent}
+{situation}
+{facts}
+{tools}
+</human_chat_contract>"""
 
 
 class HumanLikePlugin(Star):
@@ -1122,92 +1150,67 @@ class HumanLikePlugin(Star):
         hard_max = max(4, self._ci("style.max_chars", 20))  # 配置写坏了也不至于把回复剪成两个字
         # 回多长也跟着状态走：有劲的时候多说两个词，没劲、生气就压短
         emo = self._emo_now(sess)
-        target = self._target_chars(emo)
-        target = max(3, min(hard_max, target))
+        target = max(3, min(hard_max, self._target_chars(emo)))
         daypart, time_tip = self._daypart()
-
-        user_text = (event.get_message_str() or "").strip()
-        situation = self._situation_hint(user_text)
 
         private = self._is_private(event)
         where = "这段私聊" if private else "这个群"
-        opening = (
-            "你是在 QQ 上跟人一对一聊天的真人。不是助手，不是客服，也不是在表演角色扮演。"
-            if private
-            else "你是在 QQ 群里聊天的真人。不是助手，不是客服，也不是在表演角色扮演。"
-        )
-        # 条款压到 12 条、每条约一行：跑 flash 这类小模型时，规则越多它越抓不住重点，
-        # 十几条塞进一条 10 个字的回复里，最后只剩语气词。少而硬比多而全管用。
-        scope_rule = (
-            "这是私聊，对方就是在跟你说话，不用等叫，也别问「你找我干嘛」。"
-            if private
-            else "群聊里别人互相说话不用你插嘴，你只回叫到你的那一句。"
-        )
-        fact_rule = (
-            "你们已经说定的事（几点、去哪、谁先到）按它已经发生来算，不要再提相反的做法。"
-            if private
-            else "群里已经说定的事（谁订了位、谁带了什么）按它已经发生来算，不要再提相反的做法。"
-        )
+        user_text = (event.get_message_str() or "").strip()
 
         remembered = sess.get("self_lines") or []
         if remembered:
             recent = "；".join(f"「{line}」" for line in remembered[-4:])
-            recent_line = f"你最近在{where}里说过：{recent}。保持同样的立场和语气，但不要复读原句。"
+            recent_text = f"你最近在{where}里说过：{recent}。保持同样的立场和语气，但不要复读原句。"
         else:
-            recent_line = f"你在{where}里还没怎么说过话。"
+            recent_text = f"你在{where}里还没怎么说过话。"
 
-        parts = [
-            "<human_chat_contract>",
-            opening,
-            f"长度：这次只回一句，3~{target} 字，任何情况都不超过 {hard_max} 字。",
-            "必须做到：",
-            f"1. {scope_rule}",
-            "2. 先答问题：问去不去就答去/不去，问几点就答几点；答完再决定要不要带态度。",
-            "3. 不解释、不列举、不总结、不加「还有什么可以帮你」；不用 Markdown、"
-            "不用括号写动作或心理、不用引号包整句。",
-            "4. 可以敷衍、可以拒绝，但别用空话顶替回答（「知道」「明天说」不算答案）；"
-            "真不想说自己的私事就把话题岔开。",
-            "5. 被问「你是不是机器人/是不是 AI」：别用「你猜」；反问、一句「？」或者岔开，"
-            "同一个说法不连用两次。",
-            "6. 不以「晚安」「先这样」收尾（除非对方先说要睡）；不复述、不总结、不点评对话本身"
-            "（不说「你问过」「又问一遍」）。",
-            "7. 同一立场只说一次；已经翻篇的话题不回头补答；只回最新的一条消息。",
-            f"8. {fact_rule}",
-            "9. 你只说自己真做过的事。别人说「我开车」「我加班」那是别人的情况，不要接成自己也有。",
-            "10. 有人起哄你、或者指出你前后不一致时必须有反应：反驳、自嘲、装糊涂都行，"
-            "不许平静地重复一遍自己的偏好。",
-            "11. 状态不好只表现为话少，不表现为刻薄：不阴阳怪气、不嘲讽、"
-            "不拿对方的糗事或难处说事、不骂人。",
-            "12. 回答别太干：哪怕只有两个字，也带个语气词或一句态度，别只甩一个光秃秃的词。",
-            self._emotion_line(sess),
-            f"现在时间：{datetime.now():%H:%M}（{daypart}）。{time_tip}",
-            recent_line,
-        ]
-        if situation:
-            parts.append(f"当前情境：{situation}")
-        facts = self._fact_line(sess)
-        if facts:
-            parts.append(facts)
+        situation = self._situation_hint(user_text)
         if self._is_teased(sess):
-            parts.append(
-                "当前情境：刚才有人在起哄你、或者指出你前后不一致。"
+            tease = (
+                "刚才有人在起哄你、或者指出你前后不一致。"
                 "这一句必须有反应（反驳/自嘲/装糊涂都行），不要平静地复述自己的偏好。"
             )
-        if not private:
-            tools_line = self._tools_line(req)
-            if tools_line:
-                parts.append(tools_line)
-        if self._cb("style.plain", False):
-            parts.append(
-                "补充：不要用省略号，不要用「～」，不要带「喵」，不要自称名字，"
-                "直接用「我」。就像普通人随手打字。"
-            )
-        # 手动补的提示词：面板里改这一条就能压语气，不用动代码
+            situation = f"{situation}\n{tease}" if situation else tease
+
+        values = {
+            "where": where,
+            "target": target,
+            "max": hard_max,
+            "opening": (
+                "你是在 QQ 上跟人一对一聊天的真人。不是助手，不是客服，也不是在表演角色扮演。"
+                if private
+                else "你是在 QQ 群里聊天的真人。不是助手，不是客服，也不是在表演角色扮演。"
+            ),
+            "scope": (
+                "这是私聊，对方就是在跟你说话，不用等叫，也别问「你找我干嘛」。"
+                if private
+                else "群聊里别人互相说话不用你插嘴，你只回叫到你的那一句。"
+            ),
+            "fact": (
+                "你们已经说定的事（几点、去哪、谁先到）按它已经发生来算，不要再提相反的做法。"
+                if private
+                else "群里已经说定的事（谁订了位、谁带了什么）按它已经发生来算，不要再提相反的做法。"
+            ),
+            "emotion": self._emotion_line(sess),
+            "time": f"现在时间：{datetime.now():%H:%M}（{daypart}）。{time_tip}",
+            "recent": recent_text,
+            "situation": f"当前情境：{situation}" if situation else "",
+            "facts": self._fact_line(sess),
+            "tools": "" if private else self._tools_line(req),
+        }
+
+        # prompt_template 非空就整段用它；留空用内置默认
+        template = str(self._c("prompt_template", "") or "").strip() or _CONTRACT_TEMPLATE
+        body = template
+        for key, value in values.items():
+            body = body.replace("{" + key + "}", str(value))
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+
+        # 手动补的提示词：永远接在最后，优先级最高（模板里写不写 {extra} 都不影响）
         extra = str(self._c("prompt_extra", "") or "").strip()
         if extra:
-            parts.append(f"额外要求（优先于上面的所有条款）：{extra}")
-        parts.append("</human_chat_contract>")
-        return "\n".join(parts)
+            body = body.rstrip() + f"\n额外要求（优先于上面的所有条款）：{extra}"
+        return body
 
     # ───────────────────── 引用 / 艾特：把话对准人 ─────────────────────
 
@@ -1439,6 +1442,39 @@ class HumanLikePlugin(Star):
         # 长的先换，免得短名先吃掉长名的一部分
         return tuple(sorted(set(names), key=len, reverse=True))
 
+    def _apply_tics(self, text: str) -> str:
+        """把口癖（默认「喵」）按概率换成随机语气词。
+
+        人设里写着"带猫的口癖"，模型就会每句都挂一个，听久了像卡带。
+        这里只做表面替换：同长度、不动句子结构，概率由 style.tic_prob 控制。
+        """
+        if not text or self._cb("style.plain", False):
+            return text
+        tic = str(self._c("style.tic_from", "") or "").strip()
+        if not tic or tic not in text:
+            return text
+        prob = self._cf("style.tic_prob", 0.0)
+        if prob <= 0:
+            return text
+        pool = self._split_ids(self._c("style.tic_to", ""))
+        if not pool:
+            return text
+
+        last = {"pick": ""}
+
+        def _pick() -> str:
+            cand = [p for p in pool if p != last["pick"]] or pool
+            chosen = random.choice(cand)
+            last["pick"] = chosen
+            return chosen
+
+        chunks = text.split(tic)
+        out = [chunks[0]]
+        for chunk in chunks[1:]:
+            out.append(_pick() if random.random() < prob else tic)
+            out.append(chunk)
+        return "".join(out)
+
     def _sanitize(self, text: str, self_names: tuple[str, ...] = ()) -> str:
         t = (text or "").strip()
         if not t:
@@ -1479,6 +1515,7 @@ class HumanLikePlugin(Star):
 
         t = _RE_EMOJI.sub("", t)
         t = self._drop_ai_sentences(t)
+        t = self._apply_tics(t)
         t = _RE_INLINE_SPACE.sub(" ", t)
         t = _RE_BLANK.sub(" ", t).strip()
         t = t.strip("`*_#>-· ")
@@ -1701,6 +1738,7 @@ class HumanLikePlugin(Star):
             "version": _PLUGIN_VERSION,
             "axes": axes,
             "sharp_edge": 0.6,
+            "template": _CONTRACT_TEMPLATE,
             "config_path": str(self._config_path()),
         }
 

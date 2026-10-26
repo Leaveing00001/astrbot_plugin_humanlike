@@ -161,6 +161,28 @@
 
         <div class="card">
           <div class="card-head">
+            <div><h2>整段提示词模板</h2><p>高级：每轮请求都会塞这段契约。留空 = 用内置那 12 条；填了就整段替换。</p></div>
+            <span class="counter" id="tplCount">默认</span>
+          </div>
+          <textarea data-path="prompt_template" rows="9"
+            placeholder="留空 = 使用内置默认模板"></textarea>
+          <div class="examples">
+            <span class="ex-label">可用占位符</span>
+            <code class="ph">{opening} {scope} {fact} {target} {max} {emotion} {time} {recent} {situation} {facts} {tools} {where}</code>
+          </div>
+          <div class="examples">
+            <span class="ex-label">操作</span>
+            <button class="chip-btn" id="fillTemplate">填入默认模板</button>
+            <button class="chip-btn" id="clearTemplate">清空（回到内置）</button>
+          </div>
+          <div class="note">
+            <code>prompt_extra</code> 永远接在最后、优先级最高，不受这个模板影响；
+            模板里不认识的 <code>{xxx}</code> 会原样保留。
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
             <div><h2>这道口子的代价</h2>
               <p>追加提示词会跟着每一轮请求发送，写太长会稀释前面的规则。一到两句最好。</p></div>
           </div>
@@ -378,6 +400,28 @@
               <output data-out="style.split_prob">0.40</output>
             </div>
           </div>
+
+          <div class="row">
+            <div class="row-txt"><b>口癖替换</b><p>人设里的口癖每句都挂一个会像卡带。填上它，再配一组语气词，就按概率换着用。</p></div>
+            <div class="row-ctl">
+              <input class="text-input" type="text" data-path="style.tic_from" placeholder="喵">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>换成这些语气词</b><p>逗号分隔，随机挑，不会连着重复。</p></div>
+            <div class="row-ctl">
+              <input class="text-input" type="text" data-path="style.tic_to" placeholder="啊,吧,呢,嘛,哦,呀">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="row-txt"><b>换掉的概率</b><p>1.0 = 一个不留；0.6 = 六成换掉、四成保留。</p></div>
+            <div class="row-ctl">
+              <input type="range" min="0" max="1" step="0.05" data-path="style.tic_prob">
+              <output data-out="style.tic_prob">0.85</output>
+            </div>
+          </div>
         </div>
 
         <div class="card">
@@ -421,7 +465,7 @@
           <dl class="kv">
             <div><dt>版本</dt><dd data-bind="version">–</dd></div>
             <div><dt>仓库</dt><dd><a href="https://github.com/Leaveing00001/astrbot_plugin_humanlike" target="_blank" rel="noreferrer">Leaveing00001/astrbot_plugin_humanlike</a></dd></div>
-            <div><dt>离线自测</dt><dd>131 项（不需要连 QQ）</dd></div>
+            <div><dt>离线自测</dt><dd>147 项（不需要连 QQ）</dd></div>
             <div><dt>许可</dt><dd>MIT</dd></div>
           </dl>
           <div class="note">

@@ -17,8 +17,9 @@
       private_enable: true,
       private_users: "",
       prompt_extra: "",
+      prompt_template: "",
       persona_name: "",
-      style: { max_chars: 20, target_chars: 10, split_prob: 0.4 },
+      style: { max_chars: 20, target_chars: 10, split_prob: 0.4, tic_from: "喵", tic_to: "啊,吧,呢,嘛,哦", tic_prob: 0.85 },
       timing: {
         enable: true, fast_reply_prob: 0.2, settle_min: 0.3, settle_max: 1.8,
         long_pause_prob: 0.12, long_pause_max: 5, max_delay: 12,
@@ -33,7 +34,7 @@
       guards: { hide_errors: true, scrub_images: true },
     },
     meta: {
-      version: "0.8.0",
+      version: "0.9.0",
       axes: [
         { key: "energy", low: "懒散", high: "活力", baseline: 0.42,
           bands: [[0.22, "懒得动", "", ""], [0.34, "有点没劲", "", ""], [0.62, "", "", ""],
@@ -262,7 +263,12 @@
       }
     }
     if (el.tagName === "TEXTAREA") {
-      $("#extraCount").textContent = `${String(el.value || "").length} 字`;
+      const len = String(el.value || "").length;
+      if (path === "prompt_extra") $("#extraCount").textContent = `${len} 字`;
+      if (path === "prompt_template") {
+        const tplCount = $("#tplCount");
+        if (tplCount) tplCount.textContent = len ? `${len} 字` : "默认";
+      }
     }
   }
 
@@ -495,6 +501,23 @@
       link.addEventListener("click", (e) => {
         e.preventDefault();
         setTab(link.dataset.goto);
+      });
+    }
+    const fillTpl = $("#fillTemplate");
+    if (fillTpl) {
+      fillTpl.addEventListener("click", () => {
+        const ta = $('textarea[data-path="prompt_template"]');
+        ta.value = state.meta?.template || "";
+        ta.dispatchEvent(new Event("input"));
+        ta.focus();
+      });
+    }
+    const clearTpl = $("#clearTemplate");
+    if (clearTpl) {
+      clearTpl.addEventListener("click", () => {
+        const ta = $('textarea[data-path="prompt_template"]');
+        ta.value = "";
+        ta.dispatchEvent(new Event("input"));
       });
     }
     $("#saveBtn").addEventListener("click", save);

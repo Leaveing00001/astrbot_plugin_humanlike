@@ -25,8 +25,11 @@ desc: |-
   被夸、被骂、被催、被拉去玩都会推对应的那条；被推完按住几分钟不回弹，没发生什么时不写状态词。
   语气硬度可调：默认只准话少、不准刻薄，`mood.edge` / `mood.temper_floor` / `prompt_extra` 三个旋钮。
 
+  口癖可换：`style.tic_from` / `tic_to` / `tic_prob` 把「喵」这类口癖按概率换成随机语气词；
+  整段契约也能改：`prompt_template` 留空用内置 12 条，填了整段替换（面板「提示词」页有编辑框）。
+
   面板里自带设置页（插件 → 人味层 → 页面），改完点「保存并生效」，不用重启。
-version: 0.8.0
+version: 0.9.0
 author: DeepSeek Harness
 repo: https://github.com/Leaveing00001/astrbot_plugin_humanlike
 astrbot_version: ">=4.10.0"

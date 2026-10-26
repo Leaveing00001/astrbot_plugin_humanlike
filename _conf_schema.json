@@ -29,6 +29,12 @@
     "hint": "原样追加到每次回复的提示词末尾，优先级高于插件自带的所有条款——不用改代码就能压语气。例：「不管什么状态，都不许用反问句怼人」「说话别带刺，最多短一点」。留空 = 不加。",
     "default": ""
   },
+  "prompt_template": {
+    "description": "🧩 整段提示词模板（高级，留空 = 用内置默认）",
+    "type": "string",
+    "default": "",
+    "hint": "整段覆盖人味层的聊天契约。可用占位符：{opening} {scope} {fact} {target} {max} {emotion} {time} {recent} {situation} {facts} {tools} {where}；不认识的 {xxx} 会原样保留。留空就用内置那 12 条。面板「提示词」页有编辑框和「填入默认模板」按钮；prompt_extra 永远接在最后。"
+  },
   "persona_name": {
     "type": "string",
     "description": "🎭 人格自称（留空 = 自动）",
@@ -87,6 +93,29 @@
         "description": "保留省略号",
         "hint": "省略号是「懒得说完」的信号，建议保留。",
         "default": true
+      },
+      "tic_from": {
+        "description": "口癖替换：把哪个词换掉",
+        "type": "string",
+        "default": "",
+        "hint": "例如「喵」。人设里写着带猫的口癖，模型就会每句都挂一个；填上它、再配下面的语气词，就会按概率换着用。留空 = 不替换。"
+      },
+      "tic_to": {
+        "description": "换成哪些语气词",
+        "type": "string",
+        "default": "",
+        "hint": "逗号分隔，例如 啊,吧,呢,嘛,哦,呀,啦。随机挑一个，不会连着用同一个。"
+      },
+      "tic_prob": {
+        "description": "每次出现换掉的概率",
+        "type": "float",
+        "default": 0.0,
+        "hint": "1.0 = 一个不留；0.6 = 六成换掉、四成保留。建议 0.7~0.9，全换会听不出人设，不换又像卡带。",
+        "slider": {
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        }
       }
     }
   },

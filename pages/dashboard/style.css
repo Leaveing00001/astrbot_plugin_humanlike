@@ -430,3 +430,7 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
   .row-ctl input[type="range"] { width: 100%; }
   .session { flex-wrap: wrap; }
 }
+
+/* 行内的单行输入（口癖那一组） */
+.row-ctl .text-input { width: 240px; margin-top: 0; padding: 7px 12px; font-size: 13px; text-align: left; }
+.ph { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }

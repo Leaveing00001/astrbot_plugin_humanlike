@@ -735,6 +735,50 @@ check("image_url 结构不对也被修掉", plugin._scrub_history_images(weird) 
 plain = FakeImgReq([{"role": "user", "content": "就是一句话"}])
 check("纯文本历史不受影响", plugin._scrub_history_images(plain) == 0)
 
+# ── 13. 口癖替换（喵 → 语气词） ─────────────────────────
+plugin.config["style"].update({"tic_from": "喵", "tic_to": "啊,吧,呢", "tic_prob": 1.0})
+no_tic = plugin._sanitize("在的喵，刚在忙喵")
+check("口癖被换掉", "喵" not in no_tic, repr(no_tic))
+check("替换成语气词", any(ch in no_tic for ch in "啊吧呢"), repr(no_tic))
+check("句子长度不变", len(no_tic) == len("在的喵，刚在忙喵"), repr(no_tic))
+
+plugin.config["style"]["tic_prob"] = 0.0
+keep_tic = plugin._sanitize("在的喵")
+check("概率为 0 时原样保留", "喵" in keep_tic, repr(keep_tic))
+
+plugin.config["style"]["tic_prob"] = 1.0
+plugin.config["style"]["plain"] = True
+check("隐形模式不动口癖（后面会整句删掉）", plugin._apply_tics("在的喵") == "在的喵")
+plugin.config["style"]["plain"] = False
+
+plugin.config["style"]["tic_from"] = ""
+check("没配口癖就不替换", plugin._apply_tics("在的喵") == "在的喵")
+plugin.config["style"].update({"tic_from": "喵", "tic_prob": 0.0})
+
+# ── 14. 整段契约模板可改 ────────────────────────────────
+default_contract = plugin._build_contract(FakeEvent("在吗"), plugin._session("default:GroupMessage:888888888"))
+check("默认模板含身份声明", "真人" in default_contract)
+check("默认模板含 12 条", "12. " in default_contract)
+check("默认模板不含鼓励编细节那条", "带一件具体的小事" not in default_contract)
+
+plugin.config["prompt_template"] = "自定义开场 {opening}\n只回 {target} 字，上限 {max}。\n{emotion}"
+custom = plugin._build_contract(FakeEvent("在吗"), plugin._session("default:GroupMessage:888888888"))
+check("自定义模板生效", custom.startswith("自定义开场"), custom[:30])
+check("占位符被替换", "{target}" not in custom and "字" in custom)
+check("自定义模板也会带状态行", "现在状态" in custom)
+check("额外提示词仍然接在最后", "额外要求" not in custom)  # 当前 prompt_extra 为空
+
+plugin.config["prompt_extra"] = "别怼人"
+with_extra = plugin._build_contract(FakeEvent("在吗"), plugin._session("default:GroupMessage:888888888"))
+check("额外提示词接在模板之后", with_extra.rstrip().endswith("别怼人"), with_extra[-30:])
+plugin.config["prompt_extra"] = ""
+
+plugin.config["prompt_template"] = ""
+check("清空模板回到内置默认",
+      "12. " in plugin._build_contract(FakeEvent("在吗"), plugin._session("default:GroupMessage:888888888")))
+
+check("默认模板会发给面板", "template" in plugin._meta())
+
 # ── 汇总 ────────────────────────────────────────────────
 failed = [r for r in results if not r[1]]
 print(f"\n===== {len(results) - len(failed)}/{len(results)} 通过 =====")
